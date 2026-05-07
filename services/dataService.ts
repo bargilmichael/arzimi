@@ -10,7 +10,9 @@ const STORAGE_KEY = 'plumbtrack_data_v1';
 // We'll add async versions for Firestore
 export const saveUnitToFirestore = async (unit: Unit) => {
   try {
+    console.log(`Saving unit ${unit.id} to Firestore...`);
     await setDoc(doc(db, 'units', unit.id), unit);
+    console.log(`Unit ${unit.id} saved successfully!`);
   } catch (error) {
     console.error("Error saving unit to Firestore:", error);
   }
@@ -18,18 +20,15 @@ export const saveUnitToFirestore = async (unit: Unit) => {
 
 export const saveBuildingToFirestore = async (building: Building) => {
   try {
+    console.log(`Saving building ${building.id} to Firestore...`);
     await setDoc(doc(db, 'buildings', building.id), building);
+    console.log(`Building ${building.id} saved successfully!`);
   } catch (error) {
     console.error("Error saving building to Firestore:", error);
   }
 };
 
 export const initializeData = (): ProjectState => {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    return JSON.parse(saved);
-  }
-
   const buildings: Building[] = Array.from({ length: BUILDINGS_COUNT }, (_, i) => ({
     id: `b-${i + 1}`,
     name: `בניין ${i + 1}`,
@@ -44,8 +43,9 @@ export const initializeData = (): ProjectState => {
   return initialState;
 };
 
-export const saveData = (state: ProjectState) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+export const saveData = (_state: ProjectState) => {
+  // Local storage disabled to prevent stale data conflict with Firestore
+  // localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 };
 
 export const getUnit = (state: ProjectState, buildingId: string, unitId: string | number): Unit => {
@@ -90,7 +90,6 @@ export const updateUnit = (
     }
   }
 ): ProjectState => {
-  const newState = { ...state };
   const updatedUnit = { ...unit };
 
   if (updates.workConfirmation) {
@@ -110,7 +109,6 @@ export const updateUnit = (
     if (logToDelete) {
       updatedUnit.history = updatedUnit.history.filter(l => l.id !== updates.deleteLogId);
       
-      // Recalculate status for this discipline
       const remainingLogsForDiscipline = updatedUnit.history
         .filter(l => l.discipline === logToDelete.discipline)
         .sort((a, b) => b.timestamp - a.timestamp);
@@ -130,7 +128,6 @@ export const updateUnit = (
     updatedUnit.history = updatedUnit.history.map(log => 
       log.id === updates.editLog?.id ? { ...updates.editLog } : log
     );
-    // Update status to match the potentially new status/discipline
     updatedUnit.statuses = {
       ...updatedUnit.statuses,
       [updates.editLog.discipline]: updates.editLog.status
@@ -183,9 +180,16 @@ export const updateUnit = (
     );
   }
 
-  newState.units[unit.id] = updatedUnit;
+  const newState = { 
+    ...state,
+    units: { 
+      ...state.units,
+      [unit.id]: updatedUnit 
+    }
+  };
+
   saveData(newState);
-  saveUnitToFirestore(updatedUnit); // Async fire-and-forget sync
+  saveUnitToFirestore(updatedUnit);
   return newState;
 };
 

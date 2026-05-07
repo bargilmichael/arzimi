@@ -44,28 +44,37 @@ const App: React.FC = () => {
     return (localStorage.getItem('app_lang') as Language) || 'he';
   });
 
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+
   useEffect(() => {
     if (!user) return;
 
+    console.log("Setting up Firestore listeners for user:", user.email);
+
     const unsubUnits = onSnapshot(collection(db, 'units'), (snapshot) => {
+      console.log(`Units onSnapshot fired: ${snapshot.size} docs`);
       const unitsData: Record<string, Unit> = {};
       snapshot.forEach(doc => {
         unitsData[doc.id] = doc.data() as Unit;
       });
-      if (snapshot.size > 0) {
-        setState(prev => ({
-          ...prev,
-          units: { ...prev.units, ...unitsData }
-        }));
-      }
+      
+      setLastSync(new Date());
+      setState(prev => {
+        const newUnits = { ...prev.units, ...unitsData };
+        return { ...prev, units: newUnits };
+      });
+    }, (error) => {
+      console.error("Firestore Units onSnapshot error:", error);
     });
 
     const unsubBuildings = onSnapshot(collection(db, 'buildings'), (snapshot) => {
+      console.log(`Buildings onSnapshot fired: ${snapshot.size} docs`);
       const buildingsData: Building[] = [];
       snapshot.forEach(doc => {
         buildingsData.push(doc.data() as Building);
       });
       
+      setLastSync(new Date());
       if (buildingsData.length > 0) {
         setState(prev => {
           const newBuildings = prev.buildings.map(b => {
@@ -75,6 +84,8 @@ const App: React.FC = () => {
           return { ...prev, buildings: newBuildings };
         });
       }
+    }, (error) => {
+      console.error("Firestore Buildings onSnapshot error:", error);
     });
 
     return () => {
@@ -171,6 +182,18 @@ const App: React.FC = () => {
       setSelectedBuildingId(state.buildings[0].id);
     }
   }, [state.buildings, selectedBuildingId]);
+
+  useEffect(() => {
+    console.log("Current state units count:", Object.keys(state.units).length);
+    const firstUnit = Object.values(state.units)[0];
+    if (firstUnit) {
+      console.log("First unit sample data:", { 
+        id: firstUnit.id, 
+        historyCount: firstUnit.history.length,
+        appointmentsCount: firstUnit.appointments?.length || 0 
+      });
+    }
+  }, [state.units]);
 
   const activeUnit = useMemo(() => {
     if (!selectedBuildingId || selectedUnitId === null) return null;
@@ -406,8 +429,34 @@ const App: React.FC = () => {
         />
       )}
 
-      <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t p-4 text-center text-[10px] text-gray-400 z-30 font-bold uppercase tracking-widest shadow-sm">
-        {t.footerInfo}
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-md border-t p-4 z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.footerInfo}</p>
+          <div className="flex items-center gap-4">
+            {lastSync && (
+              <div className="flex items-center gap-2 px-3 py-1 bg-green-50 rounded-full border border-green-100">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-[10px] font-black text-green-700 uppercase tracking-widest">
+                  {lang === 'he' ? 'סונכרן ' : 'Synced '}
+                  {lastSync.toLocaleTimeString('he-IL')}
+                </span>
+              </div>
+            )}
+            <div className="flex gap-1">
+              {(['he', 'ru', 'ar'] as Language[]).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setLang(l)}
+                  className={`text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-md transition-all ${
+                    lang === l ? 'bg-slate-900 text-white' : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {l === 'he' ? 'HE' : l === 'ru' ? 'RU' : 'AR'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </footer>
     </div>
   );

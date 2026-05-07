@@ -20,6 +20,7 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 // Use initializeFirestore with the specific database ID and long polling to bypass websocket issues
+// The 3rd argument is the database ID.
 export const db = initializeFirestore(app, {
   experimentalForceLongPolling: true
 }, "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60");
