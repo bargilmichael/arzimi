@@ -4,14 +4,28 @@ import SignatureCanvas from 'react-signature-canvas';
 import { Language, translations } from '../translations';
 import { translateToHebrew } from '../services/aiService';
 import { storage } from '../firebase';
-import { ref, uploadString, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+// Helper to convert dataURL to Blob
+const dataURLtoBlob = (dataurl: string) => {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)![1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new Blob([u8arr], { type: mime });
+};
 
 interface Props {
   lang: Language;
   unitId: string; // Add unitId to props
   onClose: () => void;
   onConfirm: (data: {
-    workerName: string;
+    signerName: string;
+    tenantEmail?: string;
     originalDescription: string;
     translatedDescription: string;
     signatureUrl: string;
@@ -21,7 +35,8 @@ interface Props {
 
 const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfirm }) => {
   const t = translations[lang];
-  const [workerName, setWorkerName] = useState('');
+  const [signerName, setSignerName] = useState('');
+  const [tenantEmail, setTenantEmail] = useState('');
   const [description, setDescription] = useState('');
   const [translatedDescription, setTranslatedDescription] = useState('');
   const [isTranslating, setIsTranslating] = useState(false);
@@ -43,30 +58,97 @@ const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfi
   };
 
   const handleSave = async () => {
-    if (!workerName || !description || sigCanvas.current?.isEmpty()) {
+    if (!signerName || !description || !sigCanvas.current || sigCanvas.current.isEmpty()) {
       alert("Please fill all fields and sign");
       return;
     }
     
     setIsSaving(true);
+    let signatureUrl = '';
+    
     try {
-      const signatureDataUrl = sigCanvas.current?.getTrimmedCanvas().toDataURL('image/png') || '';
+      let signatureDataUrl = '';
       
-      // Upload to Storage
-      const signatureRef = ref(storage, `signatures/${unitId}_${Date.now()}.png`);
-      await uploadString(signatureRef, signatureDataUrl, 'data_url');
-      const signatureUrl = await getDownloadURL(signatureRef);
+      console.log("Converting signature to Blob...");
+      // Use JPEG with 0.7 quality for a significantly smaller file size compared to PNG
+      if (sigCanvas.current && typeof sigCanvas.current.getTrimmedCanvas === 'function') {
+        const canvas = sigCanvas.current.getTrimmedCanvas();
+        // Fill background with white for JPEG
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          for (let i = 0; i < data.length; i += 4) {
+             if (data[i + 3] === 0) { // If transparent
+               data[i] = 255;
+               data[i + 1] = 255;
+               data[i + 2] = 255;
+               data[i + 3] = 255;
+             }
+          }
+          ctx.putImageData(imageData, 0, 0);
+        }
+        signatureDataUrl = canvas.toDataURL('image/jpeg', 0.7);
+      } else {
+        signatureDataUrl = sigCanvas.current?.getCanvas().toDataURL('image/jpeg', 0.7) || '';
+      }
+
+      if (!signatureDataUrl || signatureDataUrl === 'data:,') {
+        throw new Error("Could not capture signature content");
+      }
       
+      const signatureBlob = dataURLtoBlob(signatureDataUrl);
+      console.log(`Blob created. Size: ${signatureBlob.size} bytes. Type: ${signatureBlob.type}`);
+      
+      console.log("Starting signature upload to Firebase Storage (uploadBytes)...");
+      // Upload to Storage - wrapped in a timeout promise
+      const uploadPromise = async () => {
+        const signatureRef = ref(storage, `signatures/${unitId}_${Date.now()}.jpg`);
+        console.log("Uploading to path:", signatureRef.fullPath);
+        await uploadBytes(signatureRef, signatureBlob);
+        console.log("Upload successful, fetching URL...");
+        const url = await getDownloadURL(signatureRef);
+        console.log("Got download URL:", url);
+        return url;
+      };
+
+      // Increase timeout to 30s as 15s was too aggressive for some connections
+      signatureUrl = await Promise.race([
+        uploadPromise(),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error("Timeout uploading signature (30s)")), 30000))
+      ]);
+      
+      console.log("Signature saved, URL ready.");
+      
+    } catch (error: any) {
+      const isTimeout = error.message.includes("Timeout");
+      
+      if (isTimeout) {
+        // If it's a timeout, we proceed without the URL to "close the task" as requested
+        console.warn("Signature upload timed out (30s), proceeding without URL as requested by user fallback.");
+        signatureUrl = '';
+      } else {
+        console.error("Error saving signature detail:", error);
+        const errorMsg = (lang === 'he' ? `שגיאה בשמירת החתימה: ${error.message}` : `Error saving signature: ${error.message}`);
+        alert(errorMsg);
+        setIsSaving(false);
+        return; 
+      }
+    }
+
+    // If we got here, we have a signatureUrl.
+    // Call onConfirm and allow it to handle the closure
+    try {
       onConfirm({
-        workerName,
+        signerName,
+        tenantEmail: tenantEmail || undefined,
         originalDescription: description,
         translatedDescription: translatedDescription || description,
         signatureUrl,
         language: workLang
       });
-    } catch (error) {
-      console.error("Error saving signature:", error);
-      alert("Failed to save signature. Please try again.");
+    } catch (confirmError) {
+      console.error("Error in onConfirm:", confirmError);
     } finally {
       setIsSaving(false);
     }
@@ -100,9 +182,20 @@ const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfi
           <div className="space-y-2">
             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{t.workerNameField}</label>
             <input 
-              value={workerName}
-              onChange={e => setWorkerName(e.target.value)}
+              value={signerName}
+              onChange={e => setSignerName(e.target.value)}
               placeholder={t.workerNamePlaceholder}
+              className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none font-bold bg-slate-50/50"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{(t as any).tenantEmailLabel}</label>
+            <input 
+              type="email"
+              value={tenantEmail}
+              onChange={e => setTenantEmail(e.target.value)}
+              placeholder={(t as any).tenantEmailPlaceholder}
               className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none font-bold bg-slate-50/50"
             />
           </div>

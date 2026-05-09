@@ -4,6 +4,7 @@ import { Unit, TaskStatus, Discipline, Appointment, TaskLog, WorkConfirmation } 
 import { STATUS_CONFIG, PUBLIC_AREAS, CONTRACTORS } from '../constants';
 import { Language, translations } from '../translations';
 import WorkConfirmationModal from './WorkConfirmationModal';
+import { generateWorkConfirmationPDF } from '../services/pdfService';
 
 interface Props {
   unit: Unit;
@@ -17,7 +18,8 @@ interface Props {
     completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
     workConfirmation?: {
-      workerName: string,
+      signerName: string,
+      tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
       signatureUrl: string,
@@ -62,6 +64,8 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const [followupContractorId, setFollowupContractorId] = useState(CONTRACTORS[1].id); // Default to workers
   
   const [isSignModalOpen, setIsSignModalOpen] = useState(false);
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const t = translations[lang];
   const canEdit = userRole === 'admin' || userRole === 'contractor';
@@ -84,6 +88,33 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const handleStartWork = () => {
     setActiveTab('report');
     setStatus(TaskStatus.IN_PROGRESS);
+  };
+
+  const handleDownloadPDF = async () => {
+    if (!unit.workConfirmation) return;
+    setIsGeneratingPDF(true);
+    try {
+      const buildingId = unit.buildingId.split('-')[1] || unit.buildingId;
+      const unitIdentifier = unit.id.split('-').slice(1).join('-');
+      
+      const pdf = await generateWorkConfirmationPDF({
+        appName: t.appName,
+        unitIdentifier: `${t.apartment} ${unitIdentifier}`,
+        buildingId: buildingId,
+        signerName: unit.workConfirmation.signerName,
+        date: new Date(unit.workConfirmation.timestamp).toLocaleString('he-IL'),
+        description: unit.workConfirmation.translatedDescription || unit.workConfirmation.originalDescription,
+        signatureUrl: unit.workConfirmation.signatureUrl,
+        lang: lang as 'he' | 'ru' | 'ar'
+      });
+      
+      pdf.save(`work_confirmation_${unit.id}_${Date.now()}.pdf`);
+    } catch (err) {
+      console.error("Failed to generate PDF:", err);
+      alert("Failed to generate PDF");
+    } finally {
+      setIsGeneratingPDF(false);
+    }
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -249,8 +280,19 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   };
 
   const handleWorkConfirmation = (data: any) => {
-    onSave({ workConfirmation: data });
-    setIsSignModalOpen(false);
+    try {
+      const updates: any = { workConfirmation: data };
+      if (completingTaskId) {
+        updates.updateLogStatus = { logId: completingTaskId, newStatus: TaskStatus.DONE };
+      }
+      onSave(updates);
+      setIsSignModalOpen(false);
+      setCompletingTaskId(null);
+    } catch (error) {
+      console.error("Error confirming work:", error);
+      setIsSignModalOpen(false); // Close anyway so user isn't stuck
+      setCompletingTaskId(null);
+    }
   };
 
   const handleEditHistoryLog = (log: TaskLog) => {
@@ -359,7 +401,14 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                           <div className="w-12 h-12 rounded-2xl bg-green-100 flex items-center justify-center text-2xl border-2 border-green-200">✅</div>
                           <div>
                             <span className="font-black text-green-900 text-lg block leading-tight">{t.workConfirmationTitle}</span>
-                            <span className="text-[10px] text-green-600 font-black uppercase">{unit.workConfirmation.workerName}</span>
+                            <div className="flex flex-col gap-1 mt-1">
+                              <span className="text-[10px] text-green-600 font-black uppercase">{(t as any).signedBy}: {unit.workConfirmation.signerName}</span>
+                              {unit.workConfirmation.tenantEmail && (
+                                <span className="text-[10px] text-blue-600 font-black flex items-center gap-1">
+                                  📧 {unit.workConfirmation.tenantEmail}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                         <span className="text-[10px] text-gray-400 font-black">{new Date(unit.workConfirmation.timestamp).toLocaleDateString()}</span>
@@ -376,11 +425,30 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                         </div>
                       </div>
 
-                      <div className="mt-4 pt-4 border-t border-green-100 flex justify-center">
-                        <div className="bg-white p-2 rounded-2xl border border-green-200 shadow-inner">
-                          <img src={unit.workConfirmation.signatureUrl} alt="Signature" className="h-20 object-contain" />
+                      {unit.workConfirmation.signatureUrl && (
+                        <div className="mt-4 pt-4 border-t border-green-100 flex flex-col items-center gap-4">
+                          <div className="bg-white p-2 rounded-2xl border border-green-200 shadow-inner">
+                            <img src={unit.workConfirmation.signatureUrl} alt="Signature" className="h-20 object-contain" />
+                          </div>
+                          
+                          <button 
+                            onClick={handleDownloadPDF}
+                            disabled={isGeneratingPDF}
+                            className="w-full flex items-center justify-center gap-2 py-3 px-6 rounded-2xl bg-white border-2 border-blue-600 text-blue-600 font-black text-sm hover:bg-blue-50 transition-all active:scale-95 disabled:opacity-50"
+                          >
+                            {isGeneratingPDF ? (
+                              <>
+                                <span className="animate-spin">⏳</span>
+                                {(t as any).generatingPDF}
+                              </>
+                            ) : (
+                              <>
+                                📥 {(t as any).downloadPDF}
+                              </>
+                            )}
+                          </button>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
                   {activeTasks.map(task => (
@@ -400,7 +468,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                         <p className="text-sm font-bold text-gray-700 leading-relaxed">{task.description}</p>
                         {task.images && task.images.length > 0 && (
                           <div className="grid grid-cols-3 gap-3 mt-4">
-                            {task.images.map((img, idx) => (
+                            {task.images.map((img, idx) => img && (
                               <div key={idx} className="aspect-square rounded-2xl overflow-hidden border-2 border-white shadow-md cursor-pointer hover:scale-105 transition-transform" onClick={() => window.open(img)}>
                                 <img src={img} alt="progress" className="w-full h-full object-cover" />
                               </div>
@@ -411,7 +479,15 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                       <div className="flex gap-4">
                         {canEdit && (
                           <div className="flex gap-4 flex-1">
-                            <button onClick={() => handleQuickStatusUpdate(task.id, TaskStatus.DONE)} className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2">✅ {t.finishWorkAction}</button>
+                            <button 
+                              onClick={() => {
+                                setCompletingTaskId(task.id);
+                                setIsSignModalOpen(true);
+                              }} 
+                              className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                              ✅ {t.finishWorkAction}
+                            </button>
                             {isAdmin && <button onClick={() => handleQuickStatusUpdate(task.id, TaskStatus.NEEDS_FOLLOWUP)} className="flex-1 bg-yellow-500 text-white py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-yellow-600 active:scale-95 transition-all">🔄 {t.needsFollowup}</button>}
                           </div>
                         )}
@@ -708,7 +784,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                   <div className="md:col-span-2">
                     {selectedImages.length > 0 && (
                       <div className="flex flex-wrap gap-3 mb-4 p-4 bg-white rounded-3xl border shadow-inner">
-                        {selectedImages.map((img, idx) => (
+                        {selectedImages.map((img, idx) => img && (
                           <div key={idx} className="relative w-20 h-20 rounded-xl overflow-hidden group">
                             <img src={img} alt="preview" className="w-full h-full object-cover" />
                             <button type="button" onClick={() => removeImage(idx)} className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity">&times;</button>
@@ -735,7 +811,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
         <WorkConfirmationModal 
           lang={lang} 
           unitId={unit.id}
-          onClose={() => setIsSignModalOpen(false)}
+          onClose={() => { setIsSignModalOpen(false); setCompletingTaskId(null); }}
           onConfirm={handleWorkConfirmation}
         />
       )}

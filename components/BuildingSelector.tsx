@@ -1,8 +1,9 @@
 
 import React from 'react';
-import { Building, ProjectState, Discipline } from '../types';
+import { Building, ProjectState, Discipline, TaskStatus } from '../types';
 import { Language, translations } from '../translations';
-import { getUnit } from '../services/dataService';
+import { getUnit, getUnitStatus } from '../services/dataService';
+import { UNITS_PER_BUILDING } from '../constants';
 
 interface Props {
   buildings: Building[];
@@ -18,11 +19,12 @@ const BuildingSelector: React.FC<Props> = ({ buildings, selectedBuildingId, onSe
 
   const getCompletionStats = (buildingId: string) => {
     let completed = 0;
-    for (let i = 1; i <= 50; i++) {
+    for (let i = 1; i <= UNITS_PER_BUILDING; i++) {
       const unit = getUnit(state, buildingId, i);
-      if (unit.statuses[discipline] === 'DONE') completed++;
+      const status = getUnitStatus(unit, discipline);
+      if (status === TaskStatus.DONE) completed++;
     }
-    return Math.round((completed / 50) * 100);
+    return Math.round((completed / UNITS_PER_BUILDING) * 100);
   };
 
   return (

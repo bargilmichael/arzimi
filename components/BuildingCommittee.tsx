@@ -13,13 +13,15 @@ interface Props {
 const BuildingCommittee: React.FC<Props> = ({ building, onUpdate, lang, userRole }) => {
   const t = translations[lang];
   const [isEditing, setIsEditing] = useState(false);
-  const [name, setName] = useState(building.committeeContact?.name || '');
-  const [phone, setPhone] = useState(building.committeeContact?.phone || '');
+  const [name, setName] = useState(building?.committeeContact?.name || '');
+  const [phone, setPhone] = useState(building?.committeeContact?.phone || '');
 
   const handleSave = () => {
     onUpdate({ name, phone });
     setIsEditing(false);
   };
+
+  if (!building) return null;
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm flex items-center justify-between gap-4 mb-6">

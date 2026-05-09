@@ -1,5 +1,5 @@
 
-import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, Appointment, TenantInfo } from '../types';
+import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, Appointment, TenantInfo, Plot } from '../types';
 import { BUILDINGS_COUNT, UNITS_PER_BUILDING } from '../constants';
 
 import { db } from '../firebase';
@@ -7,11 +7,28 @@ import { collection, doc, setDoc, getDocs, onSnapshot, query } from 'firebase/fi
 
 const STORAGE_KEY = 'plumbtrack_data_v1';
 
+const cleanObject = (obj: any): any => {
+  if (Array.isArray(obj)) {
+    return obj.map(cleanObject);
+  } else if (obj !== null && typeof obj === 'object') {
+    const newObj: any = {};
+    Object.keys(obj).forEach(key => {
+      const val = cleanObject(obj[key]);
+      if (val !== undefined) {
+        newObj[key] = val;
+      }
+    });
+    return newObj;
+  }
+  return obj;
+};
+
 // We'll add async versions for Firestore
 export const saveUnitToFirestore = async (unit: Unit) => {
   try {
     console.log(`Saving unit ${unit.id} to Firestore...`);
-    await setDoc(doc(db, 'units', unit.id), unit);
+    const cleaned = cleanObject(unit);
+    await setDoc(doc(db, 'units', unit.id), cleaned);
     console.log(`Unit ${unit.id} saved successfully!`);
   } catch (error) {
     console.error("Error saving unit to Firestore:", error);
@@ -21,7 +38,8 @@ export const saveUnitToFirestore = async (unit: Unit) => {
 export const saveBuildingToFirestore = async (building: Building) => {
   try {
     console.log(`Saving building ${building.id} to Firestore...`);
-    await setDoc(doc(db, 'buildings', building.id), building);
+    const cleaned = cleanObject(building);
+    await setDoc(doc(db, 'buildings', building.id), cleaned);
     console.log(`Building ${building.id} saved successfully!`);
   } catch (error) {
     console.error("Error saving building to Firestore:", error);
@@ -29,13 +47,33 @@ export const saveBuildingToFirestore = async (building: Building) => {
 };
 
 export const initializeData = (): ProjectState => {
-  const buildings: Building[] = Array.from({ length: BUILDINGS_COUNT }, (_, i) => ({
-    id: `b-${i + 1}`,
-    name: `בניין ${i + 1}`,
-    totalUnits: UNITS_PER_BUILDING
-  }));
+  const plotConfigs = [
+    { id: '800', name: 'מגרש 800', buildings: [1, 2, 3] },
+    { id: '801A', name: 'מגרש 801A', buildings: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+    { id: '803A', name: 'מגרש 803A', buildings: [14, 15, 16, 17, 18, 19] },
+    { id: '806A', name: 'מגרש 806A', buildings: [20, 21, 22, 23, 24, 25, 26, 27] },
+    { id: '807', name: 'מגרש 807', buildings: [28, 29, 30, 31] },
+    { id: '808', name: 'מגרש 808', buildings: [1, 2, 3, 4, 5, 6, 7] },
+    { id: '810', name: 'מגרש 810', buildings: [8, 9, 10, 11] },
+    { id: '812', name: 'מגרש 812', buildings: [32, 33] },
+  ];
+
+  const plots: Plot[] = plotConfigs.map(p => ({ id: p.id, name: p.name }));
+  const buildings: Building[] = [];
+
+  plotConfigs.forEach(p => {
+    p.buildings.forEach(bId => {
+      buildings.push({
+        id: `p-${p.id}-b-${bId}`,
+        name: `בניין ${bId}`,
+        plotId: p.id,
+        totalUnits: UNITS_PER_BUILDING
+      });
+    });
+  });
 
   const initialState: ProjectState = {
+    plots,
     buildings,
     units: {}
   };
@@ -70,6 +108,33 @@ export const getUnit = (state: ProjectState, buildingId: string, unitId: string 
   };
 };
 
+export const getUnitStatus = (unit: Unit, discipline: Discipline): TaskStatus | null => {
+  const hasHistory = unit.history.length > 0;
+  
+  if (discipline === 'general') {
+    if (!hasHistory) return null;
+
+    const statuses = Object.values(unit.statuses);
+    if (statuses.includes(TaskStatus.BLOCKED)) return TaskStatus.BLOCKED;
+    if (statuses.includes(TaskStatus.NEEDS_FOLLOWUP)) return TaskStatus.NEEDS_FOLLOWUP;
+    if (statuses.includes(TaskStatus.IN_PROGRESS)) return TaskStatus.IN_PROGRESS;
+    
+    // If some are DONE and some are NOT_STARTED, it's effectively IN_PROGRESS for the whole unit
+    const hasDone = statuses.includes(TaskStatus.DONE);
+    const hasNotStarted = statuses.includes(TaskStatus.NOT_STARTED);
+    
+    if (hasDone && hasNotStarted) return TaskStatus.IN_PROGRESS;
+    if (hasDone && !hasNotStarted) return TaskStatus.DONE;
+    
+    return TaskStatus.NOT_STARTED;
+  }
+  
+  const hasDisciplineHistory = unit.history.some(h => h.discipline === discipline);
+  if (!hasDisciplineHistory) return null;
+
+  return unit.statuses[discipline] || TaskStatus.NOT_STARTED;
+};
+
 export const updateUnit = (
   state: ProjectState, 
   unit: Unit, 
@@ -82,7 +147,8 @@ export const updateUnit = (
     completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
     workConfirmation?: {
-      workerName: string,
+      signerName: string,
+      tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
       signatureUrl: string,

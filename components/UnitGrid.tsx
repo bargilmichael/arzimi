@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { ProjectState, TaskStatus, Discipline } from '../types';
 import { STATUS_CONFIG, UNITS_PER_BUILDING } from '../constants';
-import { getUnit } from '../services/dataService';
+import { getUnit, getUnitStatus } from '../services/dataService';
 import { Language, translations } from '../translations';
 
 interface Props {
@@ -13,9 +13,11 @@ interface Props {
   lang: Language;
   discipline: Discipline;
   userRole?: string;
+  statusFilter?: TaskStatus | null;
+  onStatusClick?: (status: TaskStatus | null) => void;
 }
 
-const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTenant, lang, discipline, userRole }) => {
+const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTenant, lang, discipline, userRole, statusFilter, onStatusClick }) => {
   const units = Array.from({ length: UNITS_PER_BUILDING }, (_, i) => i + 1);
   const t = translations[lang];
   const [isBulkEditing, setIsBulkEditing] = useState(false);
@@ -37,12 +39,23 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
           )}
         </div>
         <div className="flex gap-3 flex-wrap">
-          {Object.entries(STATUS_CONFIG).map(([status, config]) => (
-            <div key={status} className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-100 shadow-sm">
-              <span className={`w-3 h-3 rounded-full ${config.color.split(' ')[0]}`}></span>
-              <span className="text-[11px] font-black text-gray-500">{(t as any)[config.labelKey]}</span>
-            </div>
-          ))}
+          {Object.entries(STATUS_CONFIG).map(([status, config]) => {
+            const isActive = statusFilter === status;
+            return (
+              <button 
+                key={status} 
+                onClick={() => onStatusClick?.(isActive ? null : (status as TaskStatus))}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all shadow-sm active:scale-95 ${
+                  isActive 
+                    ? config.color + ' border-current'
+                    : 'bg-slate-50 border-slate-100 hover:border-slate-300'
+                }`}
+              >
+                <span className={`w-3 h-3 rounded-full ${config.color.split(' ')[0]}`}></span>
+                <span className={`text-[11px] font-black ${isActive ? 'text-current' : 'text-gray-500'}`}>{(t as any)[config.labelKey]}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
       
@@ -87,18 +100,7 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4">
           {units.map((num) => {
             const unitData = getUnit(state, buildingId, num);
-            
-            let finalStatus = TaskStatus.NOT_STARTED;
-            if (discipline === 'general') {
-              const statuses = Object.values(unitData.statuses);
-              if (statuses.includes(TaskStatus.BLOCKED)) finalStatus = TaskStatus.BLOCKED;
-              else if (statuses.includes(TaskStatus.NEEDS_FOLLOWUP)) finalStatus = TaskStatus.NEEDS_FOLLOWUP;
-              else if (statuses.includes(TaskStatus.IN_PROGRESS)) finalStatus = TaskStatus.IN_PROGRESS;
-              else if (statuses.length > 0 && statuses.every(s => s === TaskStatus.DONE)) finalStatus = TaskStatus.DONE;
-            } else {
-              finalStatus = unitData.statuses[discipline] || TaskStatus.NOT_STARTED;
-            }
-            
+            const finalStatus = getUnitStatus(unitData, discipline) || TaskStatus.NOT_STARTED;
             const config = STATUS_CONFIG[finalStatus];
             
             return (

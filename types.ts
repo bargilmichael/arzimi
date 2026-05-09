@@ -40,7 +40,8 @@ export interface TenantInfo {
 export interface WorkConfirmation {
   id: string;
   timestamp: number;
-  workerName: string;
+  signerName: string;
+  tenantEmail?: string;
   originalDescription: string;
   translatedDescription: string;
   signatureUrl: string; // Base64 or Firebase Storage URL
@@ -61,11 +62,18 @@ export interface Unit {
 export interface Building {
   id: string;
   name: string;
+  plotId: string;
   totalUnits: number;
   committeeContact?: TenantInfo;
 }
 
+export interface Plot {
+  id: string;
+  name: string;
+}
+
 export interface ProjectState {
+  plots: Plot[];
   buildings: Building[];
   units: Record<string, Unit>;
 }

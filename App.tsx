@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ProjectState, TaskStatus, Unit, Discipline, Appointment, Building } from './types';
-import { initializeData, getUnit, updateUnit, updateBuilding } from './services/dataService';
+import { initializeData, getUnit, getUnitStatus, updateUnit, updateBuilding } from './services/dataService';
 import BuildingSelector from './components/BuildingSelector';
 import BuildingCommittee from './components/BuildingCommittee';
 import UnitGrid from './components/UnitGrid';
 import UnitModal from './components/UnitModal';
+import PlotSelector from './components/PlotSelector';
+import StatusDashboard from './components/StatusDashboard';
+import FilteredUnitList from './components/FilteredUnitList';
 import ContractorView from './components/ContractorView';
 import ScheduleView from './components/ScheduleView';
 import ProjectHistoryView from './components/ProjectHistoryView';
@@ -35,10 +38,12 @@ const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [state, setState] = useState<ProjectState>(() => initializeData());
+  const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string | number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users'>('units');
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
+  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes'>('units');
   
   const [lang, setLang] = useState<Language>(() => {
     return (localStorage.getItem('app_lang') as Language) || 'he';
@@ -79,7 +84,7 @@ const App: React.FC = () => {
         setState(prev => {
           const newBuildings = prev.buildings.map(b => {
              const found = buildingsData.find(fb => fb.id === b.id);
-             return found ? found : b;
+             return found ? { ...b, ...found } : b;
           });
           return { ...prev, buildings: newBuildings };
         });
@@ -178,6 +183,21 @@ const App: React.FC = () => {
   const t = translations[lang] || translations.he;
 
   useEffect(() => {
+    if (!selectedPlotId && state.plots.length > 0) {
+      setSelectedPlotId(state.plots[0].id);
+    }
+  }, [state.plots, selectedPlotId]);
+
+  useEffect(() => {
+    if (selectedPlotId) {
+      const plotBuildings = state.buildings.filter(b => b.plotId === selectedPlotId);
+      if (plotBuildings.length > 0 && !plotBuildings.find(b => b.id === selectedBuildingId)) {
+        setSelectedBuildingId(plotBuildings[0].id);
+      }
+    }
+  }, [selectedPlotId, state.buildings]);
+
+  useEffect(() => {
     if (!selectedBuildingId && state.buildings.length > 0) {
       setSelectedBuildingId(state.buildings[0].id);
     }
@@ -210,15 +230,17 @@ const App: React.FC = () => {
     completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
     workConfirmation?: {
-      workerName: string,
+      signerName: string,
+      tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
       signatureUrl: string,
       language: 'ru' | 'ar'
     }
-  }) => {
-    if (!activeUnit) return;
-    const newState = updateUnit(state, activeUnit, {
+  }, unitOverride?: Unit) => {
+    const targetUnit = unitOverride || activeUnit;
+    if (!targetUnit) return;
+    const newState = updateUnit(state, targetUnit, {
       newLog: updates.newLog,
       updateLogStatus: updates.updateLogStatus,
       deleteLogId: updates.deleteLogId,
@@ -231,12 +253,97 @@ const App: React.FC = () => {
     setState(newState);
   };
 
+  const handleClearAllHistory = async () => {
+    if (!isAdmin) return;
+    
+    console.log("Clearing all history...");
+    const newState = { ...state };
+    const unitIds = Object.keys(newState.units);
+    
+    for (const id of unitIds) {
+      const unit = newState.units[id];
+      if (unit.history.length > 0) {
+        const updatedUnit = { 
+          ...unit, 
+          history: [],
+          statuses: {
+            plumbing: TaskStatus.NOT_STARTED,
+            general: TaskStatus.NOT_STARTED,
+            rappelling: TaskStatus.NOT_STARTED,
+            telefire: TaskStatus.NOT_STARTED,
+            itumit: TaskStatus.NOT_STARTED,
+            emperion: TaskStatus.NOT_STARTED,
+            workers: TaskStatus.NOT_STARTED
+          }
+        };
+        newState.units[id] = updatedUnit;
+        const { saveUnitToFirestore } = await import('./services/dataService');
+        await saveUnitToFirestore(updatedUnit);
+      }
+    }
+    
+    setState(newState);
+    alert(lang === 'he' ? 'ההיסטוריה נמחקה בהצלחה' : 'History cleared successfully');
+  };
+
+  const handleDeleteMyTasks = async () => {
+    if (!user) return;
+    const name = user.displayName || user.email?.split('@')[0];
+    if (!name) return;
+    
+    console.log("Deleting all tasks for worker:", name);
+    let newState = { ...state };
+    let anyChanges = false;
+    const { saveUnitToFirestore } = await import('./services/dataService');
+
+    const unitEntries = Object.entries(newState.units);
+    for (const [unitId, unit] of unitEntries) {
+      const myLogs = unit.history.filter(l => l.workerName === name);
+      if (myLogs.length > 0) {
+        let currentUnit = { ...unit };
+        myLogs.forEach(log => {
+          const logToDelete = currentUnit.history.find(l => l.id === log.id);
+          if (logToDelete) {
+            currentUnit.history = currentUnit.history.filter(l => l.id !== log.id);
+            const remainingLogsForDiscipline = currentUnit.history
+              .filter(l => l.discipline === logToDelete.discipline)
+              .sort((a, b) => b.timestamp - a.timestamp);
+            
+            const newStatus = remainingLogsForDiscipline.length > 0 
+              ? remainingLogsForDiscipline[0].status 
+              : TaskStatus.NOT_STARTED;
+              
+            currentUnit.statuses = {
+              ...currentUnit.statuses,
+              [logToDelete.discipline]: newStatus
+            };
+          }
+        });
+        newState.units[unitId] = currentUnit;
+        await saveUnitToFirestore(currentUnit);
+        anyChanges = true;
+      }
+    }
+
+    if (anyChanges) {
+      setState(newState);
+      alert(lang === 'he' ? 'כל המשימות שלך נמחקו בהצלחה' : 'All your tasks deleted successfully');
+    } else {
+      alert(lang === 'he' ? 'לא נמצאו משימות לשיוך' : 'No tasks found associated with you');
+    }
+  };
+
   const filteredBuildings = state.buildings.filter(b => {
-    const buildingName = lang === 'ru' ? b.name.replace('בניין', 'Здание') : b.name;
-    return buildingName.includes(searchTerm) || b.id.includes(searchTerm) || b.name.includes(searchTerm);
+    const isSearchMatch = b.name.includes(searchTerm) || b.id.includes(searchTerm);
+    const isPlotMatch = !selectedPlotId || b.plotId === selectedPlotId;
+    return isSearchMatch && isPlotMatch;
   });
 
   const handleSelectFromOtherView = (buildingId: string, unitId: string | number) => {
+    const building = state.buildings.find(b => b.id === buildingId);
+    if (building) {
+      setSelectedPlotId(building.plotId);
+    }
     setSelectedBuildingId(buildingId);
     setSelectedUnitId(unitId);
     setViewMode('units');
@@ -329,7 +436,11 @@ const App: React.FC = () => {
           <button onClick={() => setViewMode('contractors')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'contractors' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewContractors}</button>
           <button onClick={() => setViewMode('schedule')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'schedule' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewSchedule}</button>
           <button onClick={() => setViewMode('history')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'history' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewHistory}</button>
-          {isAdmin && (
+          <button onClick={() => setViewMode('processes')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'processes' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
+            {(t as any).viewProcesses}
+            {statusFilter && <span className="mr-2 w-2 h-2 rounded-full bg-yellow-400 inline-block animate-pulse"></span>}
+          </button>
+          {userRole === 'admin' && (
             <button onClick={() => setViewMode('users')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'users' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
               {lang === 'he' ? 'משתמשים' : lang === 'ru' ? 'Пользователи' : 'المستخدمين'}
             </button>
@@ -341,78 +452,144 @@ const App: React.FC = () => {
         ) : viewMode === 'schedule' ? (
           <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} />
         ) : viewMode === 'history' ? (
-          <ProjectHistoryView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} />
+          <ProjectHistoryView 
+            state={state} 
+            lang={lang} 
+            onSelectUnit={handleSelectFromOtherView} 
+            onUpdate={handleUpdateUnit}
+            onClearAll={handleClearAllHistory}
+            onDeleteMyTasks={handleDeleteMyTasks}
+            userRole={userRole} 
+            userDiscipline={userDiscipline} 
+          />
+        ) : viewMode === 'processes' ? (
+          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <section className="mt-4">
+              <StatusDashboard 
+                state={state} 
+                lang={lang} 
+                selectedPlotId={selectedPlotId} 
+                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
+                statusFilter={statusFilter}
+                onStatusClick={setStatusFilter}
+              />
+            </section>
+
+            {statusFilter && (
+              <FilteredUnitList 
+                state={state}
+                lang={lang}
+                selectedPlotId={selectedPlotId}
+                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'}
+                statusFilter={statusFilter}
+                onSelectUnit={(buildingId, unitId) => {
+                  handleSelectFromOtherView(buildingId, unitId);
+                  setViewMode('units');
+                }}
+              />
+            )}
+            
+            <section className="mt-8 px-4">
+               <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{(t as any).selectPlot}</h2>
+                {selectedPlotId && (
+                  <button onClick={() => setSelectedPlotId(null)} className="text-[10px] font-black text-blue-600 uppercase hover:underline">
+                    {t.allPlots}
+                  </button>
+                )}
+              </div>
+              <PlotSelector 
+                plots={state.plots} 
+                selectedPlotId={selectedPlotId} 
+                onSelect={setSelectedPlotId} 
+                state={state} 
+                lang={lang} 
+                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
+              />
+            </section>
+          </div>
         ) : viewMode === 'users' && isAdmin ? (
           <UserManagement lang={lang} />
         ) : (
           <>
             <section className="mt-4">
-              <BuildingSelector buildings={filteredBuildings} selectedBuildingId={selectedBuildingId} onSelect={setSelectedBuildingId} state={state} lang={lang} discipline="general" />
+              <div className="flex items-center justify-between px-4 mb-2">
+                <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">{(t as any).selectPlot}</h2>
+                {selectedPlotId && (
+                  <button onClick={() => setSelectedPlotId(null)} className="text-[10px] font-black text-blue-600 uppercase hover:underline">
+                    {t.allPlots}
+                  </button>
+                )}
+              </div>
+              <PlotSelector 
+                plots={state.plots} 
+                selectedPlotId={selectedPlotId} 
+                onSelect={setSelectedPlotId} 
+                state={state} 
+                lang={lang} 
+                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
+              />
             </section>
 
-            {selectedBuildingId && (
-              <section className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <BuildingCommittee 
-                  building={state.buildings.find(b => b.id === selectedBuildingId)!}
-                  onUpdate={(committee) => {
-                    const newState = updateBuilding(state, selectedBuildingId, { committeeContact: committee });
-                    setState(newState);
-                  }}
-                  lang={lang}
-                  userRole={userRole}
-                />
-                
-                {viewMode === 'units' ? (
-                  <UnitGrid 
-                    buildingId={selectedBuildingId} 
-                    state={state} 
-                    onSelectUnit={(num) => setSelectedUnitId(num)} 
-                    onUpdateTenant={(num, name, phone) => {
-                      const unit = getUnit(state, selectedBuildingId, num);
-                      const newState = updateUnit(state, unit, { updateTenantInfo: { name, phone } });
-                      setState(newState);
-                    }}
-                    lang={lang} 
-                    discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
-                    userRole={userRole}
-                  />
-                ) : (
-                  <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
-                    <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">
-                       <span className="bg-blue-50 p-2 rounded-xl">🏢</span> {t.publicAreas}
-                    </h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-                      {PUBLIC_AREAS.map(area => {
-                        const unitData = getUnit(state, selectedBuildingId, area.id);
-                        const currentDiscipline = (userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general';
-                        
-                        let finalStatus = TaskStatus.NOT_STARTED;
-                        if (currentDiscipline === 'general') {
-                          const statuses = Object.values(unitData.statuses);
-                          if (statuses.includes(TaskStatus.BLOCKED)) finalStatus = TaskStatus.BLOCKED;
-                          else if (statuses.includes(TaskStatus.NEEDS_FOLLOWUP)) finalStatus = TaskStatus.NEEDS_FOLLOWUP;
-                          else if (statuses.includes(TaskStatus.IN_PROGRESS)) finalStatus = TaskStatus.IN_PROGRESS;
-                          else if (statuses.length > 0 && statuses.every(s => s === TaskStatus.DONE)) finalStatus = TaskStatus.DONE;
-                        } else {
-                          finalStatus = unitData.statuses[currentDiscipline] || TaskStatus.NOT_STARTED;
-                        }
-                        
-                        const config = STATUS_CONFIG[finalStatus];
-                        return (
-                          <button key={area.id} onClick={() => setSelectedUnitId(area.id)} className={`flex items-center gap-5 p-6 rounded-2xl border-2 transition-all hover:shadow-xl active:scale-95 text-right group ${config.color}`}>
-                            <span className="text-4xl group-hover:scale-110 transition-transform">{area.icon}</span>
-                            <div className="flex flex-col">
-                              <span className="font-black text-xl">{(t as any)[area.labelKey]}</span>
-                              <span className="text-xs font-bold opacity-70">{(t as any)[config.labelKey]}</span>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+            <section className="mt-6 border-t border-slate-100 pt-6">
+              <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest px-4 mb-2">{t.selectBuilding}</h2>
+              <BuildingSelector buildings={filteredBuildings} selectedBuildingId={selectedBuildingId} onSelect={setSelectedBuildingId} state={state} lang={lang} discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} />
+            </section>
+
+            {selectedBuildingId && state.buildings.find(b => b.id === selectedBuildingId) && (
+                  <section className="mt-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <BuildingCommittee 
+                      building={state.buildings.find(b => b.id === selectedBuildingId)!}
+                      onUpdate={(committee) => {
+                        const newState = updateBuilding(state, selectedBuildingId, { committeeContact: committee });
+                        setState(newState);
+                      }}
+                      lang={lang}
+                      userRole={userRole}
+                    />
+                    
+                    {viewMode === 'units' ? (
+                      <UnitGrid 
+                        buildingId={selectedBuildingId} 
+                        state={state} 
+                        onSelectUnit={(num) => setSelectedUnitId(num)} 
+                        onUpdateTenant={(num, name, phone) => {
+                          const unit = getUnit(state, selectedBuildingId, num);
+                          const newState = updateUnit(state, unit, { updateTenantInfo: { name, phone } });
+                          setState(newState);
+                        }}
+                        lang={lang} 
+                        discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
+                        userRole={userRole}
+                        statusFilter={statusFilter}
+                        onStatusClick={setStatusFilter}
+                      />
+                    ) : (
+                      <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100">
+                        <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">
+                          <span className="bg-blue-50 p-2 rounded-xl">🏢</span> {t.publicAreas}
+                        </h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+                          {PUBLIC_AREAS.map(area => {
+                            const unitData = getUnit(state, selectedBuildingId, area.id);
+                            const currentDiscipline = (userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general';
+                            const finalStatus = getUnitStatus(unitData, currentDiscipline) || TaskStatus.NOT_STARTED;
+                            const config = STATUS_CONFIG[finalStatus];
+                            return (
+                              <button key={area.id} onClick={() => setSelectedUnitId(area.id)} className={`flex items-center gap-5 p-6 rounded-2xl border-2 transition-all hover:shadow-xl active:scale-95 text-right group ${config.color}`}>
+                                <span className="text-4xl group-hover:scale-110 transition-transform">{area.icon}</span>
+                                <div className="flex flex-col">
+                                  <span className="font-black text-xl">{(t as any)[area.labelKey]}</span>
+                                  <span className="text-xs font-bold opacity-70">{(t as any)[config.labelKey]}</span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </section>
                 )}
-              </section>
-            )}
           </>
         )}
       </main>
