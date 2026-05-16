@@ -48,5 +48,6 @@ export const CONTRACTORS = [
   { id: 'rappelling', labelKey: 'contractor_rappelling', icon: '🧗' },
   { id: 'telefire', labelKey: 'contractor_telefire', icon: '🔥' },
   { id: 'emperion', labelKey: 'contractor_emperion', icon: '⚙️' },
-  { id: 'itumit', labelKey: 'contractor_itumit', icon: '💧' }
+  { id: 'itumit', labelKey: 'contractor_itumit', icon: '💧' },
+  { id: 'electrician', labelKey: 'contractor_electrician', icon: '⚡' }
 ];

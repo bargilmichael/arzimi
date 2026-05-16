@@ -7,19 +7,16 @@ export enum TaskStatus {
   BLOCKED = 'BLOCKED'
 }
 
-export type Discipline = 'plumbing' | 'general' | 'rappelling' | 'telefire' | 'itumit' | 'emperion' | 'workers';
+export type Discipline = string;
 
-export interface Appointment {
+export interface DisciplineDefinition {
   id: string;
-  date: string;
-  time: string;
-  tenantName: string;
-  contractor: string;
-  contractorId: string;
-  contractorEmail?: string;
-  notes: string;
-  isCompleted: boolean;
-  createdAt: number;
+  labels: {
+    he: string;
+    ru: string;
+    ar: string;
+  };
+  isActive: boolean;
 }
 
 export interface TaskLog {
@@ -57,9 +54,8 @@ export interface Unit {
   buildingId: string;
   number: number;
   tenantInfo?: TenantInfo;
-  statuses: Record<Discipline, TaskStatus>;
+  statuses: Record<string, TaskStatus>;
   history: TaskLog[];
-  appointments: Appointment[];
   workConfirmation?: WorkConfirmation;
   workConfirmations?: WorkConfirmation[];
 }

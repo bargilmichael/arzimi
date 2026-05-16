@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ProjectState, TaskStatus, Unit, Discipline, Appointment, Building } from './types';
+import { ProjectState, TaskStatus, Unit, Discipline, Building, DisciplineDefinition } from './types';
 import { initializeData, getUnit, getUnitStatus, updateUnit, updateBuilding } from './services/dataService';
 import BuildingSelector from './components/BuildingSelector';
 import BuildingCommittee from './components/BuildingCommittee';
@@ -38,6 +38,7 @@ const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [state, setState] = useState<ProjectState>(() => initializeData());
+  const [disciplines, setDisciplines] = useState<DisciplineDefinition[]>([]);
   const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string | number | null>(null);
@@ -55,6 +56,12 @@ const App: React.FC = () => {
     if (!user) return;
 
     console.log("Setting up Firestore listeners for user:", user.email);
+
+    // Sync Disciplines
+    const unsubDisc = onSnapshot(collection(db, 'disciplines'), (snapshot) => {
+      const discData = snapshot.docs.map(doc => doc.data() as DisciplineDefinition);
+      setDisciplines(discData);
+    });
 
     const unsubUnits = onSnapshot(collection(db, 'units'), (snapshot) => {
       console.log(`Units onSnapshot fired: ${snapshot.size} docs`);
@@ -94,6 +101,7 @@ const App: React.FC = () => {
     });
 
     return () => {
+      unsubDisc();
       unsubUnits();
       unsubBuildings();
     };
@@ -205,12 +213,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     console.log("Current state units count:", Object.keys(state.units).length);
-    const firstUnit = Object.values(state.units)[0];
+    const firstUnit = Object.values(state.units)[0] as Unit | undefined;
     if (firstUnit) {
       console.log("First unit sample data:", { 
         id: firstUnit.id, 
-        historyCount: firstUnit.history.length,
-        appointmentsCount: firstUnit.appointments?.length || 0 
+        historyCount: firstUnit.history.length
       });
     }
   }, [state.units]);
@@ -226,8 +233,6 @@ const App: React.FC = () => {
     updateLogStatus?: { logId: string, newStatus: TaskStatus },
     deleteLogId?: string,
     editLog?: any,
-    newAppointment?: Omit<Appointment, 'id' | 'createdAt' | 'isCompleted'>,
-    completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
     workConfirmation?: {
       signerName: string,
@@ -245,8 +250,6 @@ const App: React.FC = () => {
       updateLogStatus: updates.updateLogStatus,
       deleteLogId: updates.deleteLogId,
       editLog: updates.editLog,
-      newAppointment: updates.newAppointment,
-      completeAppointmentId: updates.completeAppointmentId,
       updateTenantInfo: updates.updateTenantInfo,
       workConfirmation: updates.workConfirmation
     });
@@ -256,35 +259,31 @@ const App: React.FC = () => {
   const handleClearAllHistory = async () => {
     if (!isAdmin) return;
     
-    console.log("Clearing all history and appointments...");
+    console.log("Clearing all history...");
     const newState = { ...state };
     const unitIds = Object.keys(newState.units);
+    const { saveUnitToFirestore } = await import('./services/dataService');
     
     for (const id of unitIds) {
       const unit = newState.units[id];
-      if (unit.history.length > 0 || (unit.appointments && unit.appointments.length > 0)) {
+      if (unit.history.length > 0) {
+        const resetStatuses: Record<string, TaskStatus> = {};
+        disciplines.forEach(d => {
+          resetStatuses[d.id] = TaskStatus.NOT_STARTED;
+        });
+
         const updatedUnit = { 
           ...unit, 
           history: [],
-          appointments: [],
-          statuses: {
-            plumbing: TaskStatus.NOT_STARTED,
-            general: TaskStatus.NOT_STARTED,
-            rappelling: TaskStatus.NOT_STARTED,
-            telefire: TaskStatus.NOT_STARTED,
-            itumit: TaskStatus.NOT_STARTED,
-            emperion: TaskStatus.NOT_STARTED,
-            workers: TaskStatus.NOT_STARTED
-          }
+          statuses: resetStatuses
         };
         newState.units[id] = updatedUnit;
-        const { saveUnitToFirestore } = await import('./services/dataService');
         await saveUnitToFirestore(updatedUnit);
       }
     }
     
     setState(newState);
-    alert(lang === 'he' ? 'כל הנתונים (היסטוריה ופגישות) נמחקו בהצלחה' : 'All data (history and appointments) cleared successfully');
+    alert(lang === 'he' ? 'כל הנתונים (היסטוריה) נמחקו בהצלחה' : 'All data (history) cleared successfully');
   };
 
   const handleDeleteMyTasks = async () => {
@@ -292,17 +291,17 @@ const App: React.FC = () => {
     const name = user.displayName || user.email?.split('@')[0];
     if (!name) return;
     
-    console.log("Deleting all tasks and appointments for worker:", name);
+    console.log("Deleting all tasks for worker:", name);
     let newState = { ...state };
     let anyChanges = false;
     const { saveUnitToFirestore } = await import('./services/dataService');
 
     const unitEntries = Object.entries(newState.units);
-    for (const [unitId, unit] of unitEntries) {
+    for (const [unitId, unitData] of unitEntries) {
+      const unit = unitData as Unit;
       const myLogs = unit.history.filter(l => l.workerName === name);
-      const myApps = unit.appointments?.filter(a => a.tenantName.includes(name) || a.contractor.includes(name)) || [];
       
-      if (myLogs.length > 0 || myApps.length > 0) {
+      if (myLogs.length > 0) {
         let currentUnit = { ...unit };
         
         // Remove logs
@@ -324,11 +323,6 @@ const App: React.FC = () => {
             };
           }
         });
-
-        // Remove appointments
-        if (myApps.length > 0) {
-          currentUnit.appointments = currentUnit.appointments.filter(a => !myApps.find(ma => ma.id === a.id));
-        }
 
         newState.units[unitId] = currentUnit;
         await saveUnitToFirestore(currentUnit);
@@ -361,6 +355,8 @@ const App: React.FC = () => {
   };
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
+  const isWorkManager = userRole === 'contractor' && userDiscipline === 'general';
+  const isSupervisor = isAdmin || isWorkManager;
 
   if (!isAuthReady) {
     return (
@@ -459,9 +455,9 @@ const App: React.FC = () => {
         </div>
 
         {viewMode === 'contractors' ? (
-          <ContractorView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} />
+          <ContractorView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
         ) : viewMode === 'schedule' ? (
-          <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} />
+          <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
         ) : viewMode === 'history' ? (
           <ProjectHistoryView 
             state={state} 
@@ -472,6 +468,7 @@ const App: React.FC = () => {
             onDeleteMyTasks={handleDeleteMyTasks}
             userRole={userRole} 
             userDiscipline={userDiscipline} 
+            disciplines={disciplines}
           />
         ) : viewMode === 'processes' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -572,6 +569,7 @@ const App: React.FC = () => {
                         lang={lang} 
                         discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
                         userRole={userRole}
+                        userDiscipline={userDiscipline}
                         statusFilter={statusFilter}
                         onStatusClick={setStatusFilter}
                       />
@@ -615,6 +613,8 @@ const App: React.FC = () => {
           lang={lang} 
           activeDiscipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
           userRole={userRole}
+          userDiscipline={userDiscipline}
+          disciplines={disciplines}
         />
       )}
 

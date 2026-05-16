@@ -13,11 +13,11 @@ interface Props {
   lang: Language;
   discipline: Discipline;
   userRole?: string;
+  userDiscipline?: string;
   statusFilter?: TaskStatus | null;
-  onStatusClick?: (status: TaskStatus | null) => void;
 }
 
-const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTenant, lang, discipline, userRole, statusFilter, onStatusClick }) => {
+const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTenant, lang, discipline, userRole, userDiscipline, statusFilter, onStatusClick }) => {
   const units = Array.from({ length: UNITS_PER_BUILDING }, (_, i) => i + 1);
   const t = translations[lang];
   const [isBulkEditing, setIsBulkEditing] = useState(false);
@@ -29,7 +29,7 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
           <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
             <span className="bg-blue-50 p-2 rounded-xl">🏘️</span> {t.unitList}
           </h2>
-          {userRole === 'admin' && (
+          {(userRole === 'admin' || userDiscipline === 'general') && (
             <button 
               onClick={() => setIsBulkEditing(!isBulkEditing)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition-all shadow-sm border ${isBulkEditing ? 'bg-blue-600 text-white border-blue-700' : 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100'}`}

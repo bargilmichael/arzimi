@@ -1,5 +1,5 @@
 
-import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, Appointment, TenantInfo, Plot } from '../types';
+import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, TenantInfo, Plot } from '../types';
 import { BUILDINGS_COUNT, UNITS_PER_BUILDING } from '../constants';
 
 import { db } from '../firebase';
@@ -94,17 +94,8 @@ export const getUnit = (state: ProjectState, buildingId: string, unitId: string 
     id: key,
     buildingId,
     number: typeof unitId === 'number' ? unitId : 0,
-    statuses: {
-      plumbing: TaskStatus.NOT_STARTED,
-      general: TaskStatus.NOT_STARTED,
-      rappelling: TaskStatus.NOT_STARTED,
-      telefire: TaskStatus.NOT_STARTED,
-      itumit: TaskStatus.NOT_STARTED,
-      emperion: TaskStatus.NOT_STARTED,
-      workers: TaskStatus.NOT_STARTED
-    },
-    history: [],
-    appointments: []
+    statuses: {},
+    history: []
   };
 };
 
@@ -143,8 +134,6 @@ export const updateUnit = (
     updateLogStatus?: { logId: string, newStatus: TaskStatus },
     deleteLogId?: string,
     editLog?: TaskLog,
-    newAppointment?: Omit<Appointment, 'id' | 'createdAt' | 'isCompleted'>,
-    completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
     workConfirmation?: {
       signerName: string,
@@ -249,24 +238,6 @@ export const updateUnit = (
       ...updatedUnit.statuses,
       [updates.newLog.discipline]: updates.newLog.status
     };
-  }
-
-  if (updates.newAppointment) {
-    const appointment: Appointment = {
-      ...updates.newAppointment,
-      id: Math.random().toString(36).substr(2, 9),
-      createdAt: Date.now(),
-      isCompleted: false
-    };
-    updatedUnit.appointments = [...updatedUnit.appointments, appointment].sort((a, b) => 
-      new Date(`${a.date} ${a.time}`).getTime() - new Date(`${b.date} ${b.time}`).getTime()
-    );
-  }
-
-  if (updates.completeAppointmentId) {
-    updatedUnit.appointments = updatedUnit.appointments.map(app => 
-      app.id === updates.completeAppointmentId ? { ...app, isCompleted: true } : app
-    );
   }
 
   const newState = { 

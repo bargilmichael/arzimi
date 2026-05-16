@@ -1,5 +1,5 @@
 import React from 'react';
-import { ProjectState, TaskLog, Unit, TaskStatus } from '../types';
+import { ProjectState, TaskLog, Unit, TaskStatus, DisciplineDefinition } from '../types';
 import { CONTRACTORS, STATUS_CONFIG } from '../constants';
 import { Language, translations } from '../translations';
 
@@ -9,18 +9,21 @@ interface Props {
   onSelectUnit: (buildingId: string, unitId: string | number) => void;
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
+  disciplines: DisciplineDefinition[];
 }
 
-const ContractorView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline }) => {
+const ContractorView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline, disciplines }) => {
   const t = translations[lang];
 
-  // Map contractors by their translated labels for easier lookup in logs
-  const contractorIdToLabel = (id: string) => (t as any)[CONTRACTORS.find(c => c.id === id)?.labelKey || ''];
+  // Map contractors by their labels for easier lookup in logs
+  const contractorIdToLabel = (id: string) => {
+    const disc = disciplines.find(d => d.id === id);
+    return disc?.labels[lang] || disc?.labels.he || id;
+  };
 
-  const filteredContractors = CONTRACTORS.filter(c => {
-    if (userRole !== 'contractor' || userDiscipline === 'all') return true;
-    if (userDiscipline === 'plumbing') return c.id === 'plumber';
-    return c.id === userDiscipline;
+  const filteredContractors = disciplines.filter(d => {
+    if (userRole !== 'contractor' || userDiscipline === 'all' || userDiscipline === 'general') return true;
+    return d.id === userDiscipline;
   });
 
   return (
@@ -30,6 +33,7 @@ const ContractorView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredContractors.map(contractor => {
           const label = contractorIdToLabel(contractor.id);
+          const icon = '👷'; // Default icon for dynamic disciplines
           
           // Find all logs related to this contractor
           const contractorLogs: { log: TaskLog, unit: Unit }[] = [];
@@ -60,7 +64,7 @@ const ContractorView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, 
               {/* Card Header */}
               <div className="p-4 bg-gray-50 border-b flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">{contractor.icon}</span>
+                  <span className="text-2xl">{icon}</span>
                   <span className="font-bold text-gray-800">{label}</span>
                 </div>
                 <div className="bg-blue-100 text-blue-700 px-2 py-1 rounded-md text-[10px] font-bold">

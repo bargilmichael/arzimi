@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ProjectState, Unit, Appointment, TaskStatus } from '../types';
+import { ProjectState, Unit, TaskStatus, DisciplineDefinition } from '../types';
 import { Language, translations } from '../translations';
 import { CONTRACTORS, PUBLIC_AREAS } from '../constants';
 
@@ -9,11 +9,12 @@ interface Props {
   onSelectUnit: (buildingId: string, unitId: string | number) => void;
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
+  disciplines: DisciplineDefinition[];
 }
 
 const ITEMS_PER_PAGE = 4;
 
-const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline }) => {
+const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline, disciplines }) => {
   const t = translations[lang] as any;
   const [currentPage, setCurrentPage] = useState(0);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'range'>('all');
@@ -28,35 +29,18 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
     return `${day}/${month}/${year}`;
   };
 
-  const triggerCalendarInvite = (app: Appointment, unit: Unit) => {
-    const unitIdentifier = unit.id.split('-').slice(1).join('-');
-    const isPublicArea = isNaN(Number(unitIdentifier));
-    const publicAreaConfig = isPublicArea ? PUBLIC_AREAS.find(a => a.id === unitIdentifier) : null;
-    const unitName = isPublicArea ? (t as any)[publicAreaConfig?.labelKey || ''] : `${t.apartment} ${unitIdentifier}`;
-    
-    // Find building info
-    const building = state.buildings.find(b => b.id === unit.buildingId);
-    const buildingName = building?.name || `בניין ${unit.buildingId.split('-')[3]}`;
-    const plotId = building?.plotId || unit.buildingId.split('-')[1];
-
-    const title = encodeURIComponent(`${t.appName}: ${unitName}`);
-    const details = encodeURIComponent(`${t.building}: ${buildingName}, ${t.lotLabel || 'מגרש'}: ${plotId}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${app.tenantName}\n${t.notesLabel}: ${app.notes}`);
-    const dateStr = app.date.replace(/-/g, '');
-    const timeStr = app.time.replace(/:/g, '') + '00';
-    const endTimeStr = (Number(timeStr) + 10000).toString().padStart(6, '0');
-    
-    const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dateStr}T${timeStr}/${dateStr}T${endTimeStr}`;
-    
-    const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${formatDate(app.date)}\n${t.timeLabel}: ${app.time}\n${t.tenantLabel}: ${app.tenantName}\n\n${t.notesLabel}: ${app.notes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить تقویم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
-    
-    window.location.href = `mailto:${app.contractorEmail}?subject=${title}&body=${body}`;
+  const resetFilters = () => {
+    setDateFilter('all');
+    setContractorFilter('all');
+    setStartDate('');
+    setEndDate('');
   };
 
-  // Flatten all appointments and tasks from all units (including past ones for filtering)
+  // Flatten tasks from all units
   const unifiedItems: { 
     unit: Unit; 
-    item: Appointment | any; 
-    type: 'appointment' | 'task';
+    item: any; 
+    type: 'task';
     date: string;
     time: string;
     title: string;
@@ -68,32 +52,17 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
   const today = new Date().toISOString().split('T')[0];
 
   (Object.values(state.units) as Unit[]).forEach(unit => {
-    // Add Appointments
-    unit.appointments.forEach(app => {
-      const contractorId = CONTRACTORS.find(c => (t as any)[c.labelKey] === app.contractor)?.id;
-      unifiedItems.push({ 
-        unit, 
-        item: app, 
-        type: 'appointment',
-        date: app.date,
-        time: app.time,
-        title: app.tenantName,
-        contractor: app.contractor,
-        contractorId,
-        isCompleted: app.isCompleted
-      });
-    });
-
     // Add Tasks
     unit.history.forEach(log => {
-      const taskDate = new Date(log.timestamp).toISOString().split('T')[0];
-      const contractorId = CONTRACTORS.find(c => (t as any)[c.labelKey] === log.contractor)?.id;
+      const logDate = new Date(log.timestamp);
+      const taskDate = logDate.toISOString().split('T')[0];
+      const contractorId = log.contractorId;
       unifiedItems.push({
         unit,
         item: log,
         type: 'task',
         date: taskDate,
-        time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+        time: logDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
         title: log.workerName,
         contractor: log.contractor,
         contractorId,
@@ -105,13 +74,9 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
   // Filter based on role/discipline and user-selected filters
   const filteredItems = unifiedItems.filter(item => {
     // 1. Role/Discipline restriction
-    let matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all';
+    let matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all' || userDiscipline === 'general';
     if (!matchesDiscipline) {
-      if (userDiscipline === 'plumbing') {
-        matchesDiscipline = item.contractorId === 'plumber';
-      } else {
-        matchesDiscipline = item.contractorId === userDiscipline;
-      }
+      matchesDiscipline = item.contractorId === userDiscipline;
     }
     if (!matchesDiscipline) return false;
 
@@ -130,21 +95,18 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
       if (startDate && item.date < startDate) return false;
       if (endDate && item.date > endDate) return false;
     } else {
-      // 'all' filter - by default we only show incomplete items
-      if (item.isCompleted) return false;
-      // Also, if it's the 'all' view, we usually only care about today and future unless it's incomplete
-      if (item.date < today) return false;
+      // 'all' filter shows everything
     }
 
     return true;
   });
 
-  // Sort by date and time
+  // Sort by date and time (descending for history)
   filteredItems.sort((a, b) => 
-    new Date(`${a.date} ${a.time}`).getTime() - new Date(`${b.date} ${b.time}`).getTime()
+    new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime()
   );
 
-  // Group by date for load analysis (only for future/relevant items)
+  // Group by date for load analysis
   const loadByDate: Record<string, Record<string, number>> = {};
   filteredItems.forEach(item => {
     if (!loadByDate[item.date]) {
@@ -156,13 +118,6 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
   const sortedDates = Object.keys(loadByDate).sort();
   const totalPages = Math.ceil(sortedDates.length / ITEMS_PER_PAGE);
   const visibleDates = sortedDates.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
-
-  const resetFilters = () => {
-    setDateFilter('all');
-    setContractorFilter('all');
-    setStartDate('');
-    setEndDate('');
-  };
 
   return (
     <div className="space-y-6">
@@ -215,8 +170,8 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
             className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-white font-black text-sm focus:border-blue-500 transition-all outline-none"
           >
             <option value="all">{t.allContractors}</option>
-            {CONTRACTORS.map(c => (
-              <option key={c.id} value={c.id}>{c.icon} {t[c.labelKey]}</option>
+            {disciplines.map(d => (
+              <option key={d.id} value={d.id}>👷 {d.labels[lang] || d.labels.he}</option>
             ))}
           </select>
         </div>
@@ -296,11 +251,10 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                 </div>
                 <div className="space-y-2">
                   {Object.entries(loadByDate[date]).map(([contractor, count]) => {
-                    const contractorConfig = CONTRACTORS.find(c => (t as any)[c.labelKey] === contractor);
                     return (
                       <div key={contractor} className="flex justify-between items-center group">
                         <span className="text-[11px] font-bold text-gray-500 flex items-center gap-1.5">
-                          <span className="opacity-70">{contractorConfig?.icon || '👤'}</span>
+                          <span className="opacity-70">👷</span>
                           {contractor}
                         </span>
                         <span className={`text-[11px] font-black px-1.5 rounded-md ${count > 3 ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
@@ -326,7 +280,7 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
       {filteredItems.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center border-2 border-dashed text-gray-400">
           <div className="text-4xl mb-4">📭</div>
-          <p>{lang === 'he' ? 'אין פגישות או משימות לטווח שנבחר' : t.noAppointments}</p>
+          <p>{lang === 'he' ? 'אין פגישות או משימות לטווח שנבחר' : lang === 'ru' ? 'Нет назначенных встреч или задач' : 'لا يوجد مواعيد או مهام'}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -339,7 +293,7 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
             const isToday = date === today;
             
             // Find contractor icon
-            const contractorConfig = CONTRACTORS.find(c => (t as any)[c.labelKey] === contractor);
+            const isManager = contractor.includes('מנהל') || contractor.includes('Manager');
 
             return (
               <button
@@ -379,8 +333,8 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                     <span className="text-xs text-gray-500 flex items-center gap-1">
                       <span>👤</span> {title}
                     </span>
-                    <span className={`text-[10px] border px-2 py-0.5 rounded-full font-bold shadow-sm flex items-center gap-1 ${contractor.includes('מנהל') ? 'bg-gray-100 text-gray-700 border-gray-300' : 'bg-white text-blue-700 border-blue-100'}`}>
-                      {contractorConfig?.icon || '👔'} {contractor}
+                    <span className={`text-[10px] border px-2 py-0.5 rounded-full font-bold shadow-sm flex items-center gap-1 ${isManager ? 'bg-gray-100 text-gray-700 border-gray-300' : 'bg-white text-blue-700 border-blue-100'}`}>
+                      {isManager ? '👔' : '👷'} {contractor}
                     </span>
                   </div>
                 </div>
@@ -391,18 +345,7 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                   </div>
                 )}
                 
-                <div className="mt-3 flex justify-between items-center">
-                   {type === 'appointment' && item.contractorEmail && (
-                     <button 
-                       onClick={(e) => {
-                         e.stopPropagation();
-                         triggerCalendarInvite(item, unit);
-                       }}
-                       className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100 flex items-center gap-1"
-                     >
-                       📧 {t.sendInvite}
-                     </button>
-                   )}
+                <div className="mt-3 flex justify-end">
                    <span className="text-[10px] text-blue-500 font-bold group-hover:underline">
                      {lang === 'he' ? 'צפייה בכרטיס הדירה ←' : lang === 'ru' ? 'Посмотреть карту ←' : 'عرض ملف الشقة ←'}
                    </span>

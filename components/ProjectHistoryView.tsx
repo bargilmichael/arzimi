@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { ProjectState, TaskLog, Unit, TaskStatus } from '../types';
+import { ProjectState, TaskLog, Unit, TaskStatus, DisciplineDefinition } from '../types';
 import { STATUS_CONFIG, CONTRACTORS, PUBLIC_AREAS, UNITS_PER_BUILDING } from '../constants';
 import { Language, translations } from '../translations';
 
@@ -12,9 +12,10 @@ interface Props {
   onDeleteMyTasks?: () => void;
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
+  disciplines: DisciplineDefinition[];
 }
 
-const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpdate, onClearAll, onDeleteMyTasks, userRole, userDiscipline }) => {
+const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpdate, onClearAll, onDeleteMyTasks, userRole, userDiscipline, disciplines }) => {
   const [filterPlot, setFilterPlot] = useState<string>('all');
   const [filterBuilding, setFilterBuilding] = useState<string>('all');
   const [filterContractor, setFilterContractor] = useState<string>('all');
@@ -93,7 +94,8 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
         const matchesPlot = filterPlot === 'all' || plotId === filterPlot;
         const matchesBuilding = filterBuilding === 'all' || unit.buildingId === filterBuilding;
         const matchesContractor = filterContractor === 'all' || log.contractor === filterContractor;
-        const matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all' || log.discipline === userDiscipline;
+        const isSupervisor = userRole === 'admin' || userDiscipline === 'general';
+        const matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all' || isSupervisor || log.discipline === userDiscipline;
         
         const unitIdParts = unit.id.split('-');
         const unitIdentifier = unitIdParts[unitIdParts.length - 1];
@@ -127,24 +129,24 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             <span className="text-2xl">📜</span>
             {t.fullHistoryTitle}
           </h2>
-          <div className="flex gap-2">
-            {onDeleteMyTasks && filteredLogs.length > 0 && (
-              <button 
-                onClick={() => setConfirmModal({ show: true, type: 'my-tasks' })}
-                className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-blue-100 transition-all border border-blue-100 flex items-center gap-2"
-              >
-                🧹 {lang === 'he' ? 'מחק את כל המשימות שלי' : 'Delete My Tasks'}
-              </button>
-            )}
-            {userRole === 'admin' && onClearAll && filteredLogs.length > 0 && (
-              <button 
-                onClick={() => setConfirmModal({ show: true, type: 'clear-all' })}
-                className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
-              >
-                🗑️ {lang === 'he' ? 'מחק את כל ההיסטוריה' : 'Clear All History'}
-              </button>
-            )}
-          </div>
+            <div className="flex gap-2">
+              {onDeleteMyTasks && filteredLogs.length > 0 && (
+                <button 
+                  onClick={() => setConfirmModal({ show: true, type: 'my-tasks' })}
+                  className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-blue-100 transition-all border border-blue-100 flex items-center gap-2"
+                >
+                  🧹 {lang === 'he' ? 'מחק את כל המשימות שלי' : 'Delete My Tasks'}
+                </button>
+              )}
+              {(userRole === 'admin' || userDiscipline === 'general') && onClearAll && filteredLogs.length > 0 && (
+                <button 
+                  onClick={() => setConfirmModal({ show: true, type: 'clear-all' })}
+                  className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
+                >
+                  🗑️ {lang === 'he' ? 'מחק את כל ההיסטוריה' : 'Clear All History'}
+                </button>
+              )}
+            </div>
         </div>
         
         {/* Filters Grid */}
@@ -197,12 +199,11 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none"
             >
               <option value="all">{t.allContractors}</option>
-              {CONTRACTORS.filter(c => {
-                if (userRole !== 'contractor' || userDiscipline === 'all') return true;
-                if (userDiscipline === 'plumbing') return c.id === 'plumber';
-                return c.id === userDiscipline;
-              }).map(c => (
-                <option key={c.id} value={(t as any)[c.labelKey]}>{c.icon} {(t as any)[c.labelKey]}</option>
+              {disciplines.filter(d => {
+                if (userRole !== 'contractor' || userDiscipline === 'all' || userDiscipline === 'general') return true;
+                return d.id === userDiscipline;
+              }).map(d => (
+                <option key={d.id} value={d.labels[lang] || d.labels.he}>👷 {d.labels[lang] || d.labels.he}</option>
               ))}
             </select>
           </div>
@@ -363,7 +364,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                             <span className="text-[10px] font-black hidden sm:inline uppercase">{(t as any).viewConfirmation || 'אישור'}</span>
                           </button>
                         )}
-                        {(userRole === 'admin' || userRole === 'contractor') && (
+                        {(userRole === 'admin' || userDiscipline === 'general') && (
                           <>
                             <button 
                               onClick={(e) => {
