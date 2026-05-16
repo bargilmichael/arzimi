@@ -33,10 +33,29 @@ const StatusDashboard: React.FC<Props> = ({ state, lang, selectedPlotId, discipl
     targetBuildings.forEach(building => {
       for (let i = 1; i <= building.totalUnits; i++) {
         const unit = getUnit(state, building.id, i);
-        const finalStatus = getUnitStatus(unit, discipline);
-        if (finalStatus) {
-          stats[finalStatus]++;
-        }
+        
+        // Identify the LATEST status for each contractor/discipline
+        const latestStatuses = new Map<string, TaskStatus>();
+        
+        const logs = discipline === 'general' 
+          ? unit.history 
+          : unit.history.filter(h => h.discipline === discipline);
+          
+        // History is sorted newest first usually, but let's be sure
+        // Actually, updateUnit unshifts, so [0] is newest.
+        // We'll iterate and only keep the first one we see for each contractor
+        logs.forEach(log => {
+          if (!latestStatuses.has(log.contractor)) {
+            latestStatuses.set(log.contractor, log.status);
+          }
+        });
+
+        // Unique statuses across all active tasks of this unit
+        const unitStatuses = new Set<TaskStatus>(latestStatuses.values());
+
+        unitStatuses.forEach(status => {
+          stats[status]++;
+        });
       }
     });
 

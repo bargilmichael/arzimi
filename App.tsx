@@ -222,7 +222,7 @@ const App: React.FC = () => {
 
   // Fix: updated newLog parameter to include optional images field to match UnitModal's onSave requirement
   const handleUpdateUnit = (updates: { 
-    newLog?: { status: TaskStatus, workerName: string, contractor: string, description: string, discipline: Discipline, images?: string[] },
+    newLog?: { status: TaskStatus, workerName: string, contractor: string, contractorId: string, description: string, discipline: Discipline, images?: string[] },
     updateLogStatus?: { logId: string, newStatus: TaskStatus },
     deleteLogId?: string,
     editLog?: any,
@@ -234,7 +234,7 @@ const App: React.FC = () => {
       tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
-      signatureUrl: string,
+      attachmentUrl: string,
       language: 'ru' | 'ar'
     }
   }, unitOverride?: Unit) => {
@@ -256,16 +256,17 @@ const App: React.FC = () => {
   const handleClearAllHistory = async () => {
     if (!isAdmin) return;
     
-    console.log("Clearing all history...");
+    console.log("Clearing all history and appointments...");
     const newState = { ...state };
     const unitIds = Object.keys(newState.units);
     
     for (const id of unitIds) {
       const unit = newState.units[id];
-      if (unit.history.length > 0) {
+      if (unit.history.length > 0 || (unit.appointments && unit.appointments.length > 0)) {
         const updatedUnit = { 
           ...unit, 
           history: [],
+          appointments: [],
           statuses: {
             plumbing: TaskStatus.NOT_STARTED,
             general: TaskStatus.NOT_STARTED,
@@ -283,7 +284,7 @@ const App: React.FC = () => {
     }
     
     setState(newState);
-    alert(lang === 'he' ? 'ההיסטוריה נמחקה בהצלחה' : 'History cleared successfully');
+    alert(lang === 'he' ? 'כל הנתונים (היסטוריה ופגישות) נמחקו בהצלחה' : 'All data (history and appointments) cleared successfully');
   };
 
   const handleDeleteMyTasks = async () => {
@@ -291,7 +292,7 @@ const App: React.FC = () => {
     const name = user.displayName || user.email?.split('@')[0];
     if (!name) return;
     
-    console.log("Deleting all tasks for worker:", name);
+    console.log("Deleting all tasks and appointments for worker:", name);
     let newState = { ...state };
     let anyChanges = false;
     const { saveUnitToFirestore } = await import('./services/dataService');
@@ -299,8 +300,12 @@ const App: React.FC = () => {
     const unitEntries = Object.entries(newState.units);
     for (const [unitId, unit] of unitEntries) {
       const myLogs = unit.history.filter(l => l.workerName === name);
-      if (myLogs.length > 0) {
+      const myApps = unit.appointments?.filter(a => a.tenantName.includes(name) || a.contractor.includes(name)) || [];
+      
+      if (myLogs.length > 0 || myApps.length > 0) {
         let currentUnit = { ...unit };
+        
+        // Remove logs
         myLogs.forEach(log => {
           const logToDelete = currentUnit.history.find(l => l.id === log.id);
           if (logToDelete) {
@@ -319,6 +324,12 @@ const App: React.FC = () => {
             };
           }
         });
+
+        // Remove appointments
+        if (myApps.length > 0) {
+          currentUnit.appointments = currentUnit.appointments.filter(a => !myApps.find(ma => ma.id === a.id));
+        }
+
         newState.units[unitId] = currentUnit;
         await saveUnitToFirestore(currentUnit);
         anyChanges = true;
@@ -598,6 +609,7 @@ const App: React.FC = () => {
         <UnitModal 
           key={activeUnit.id}
           unit={activeUnit} 
+          state={state}
           onClose={() => setSelectedUnitId(null)} 
           onSave={handleUpdateUnit} 
           lang={lang} 

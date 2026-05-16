@@ -151,19 +151,35 @@ export const updateUnit = (
       tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
-      signatureUrl: string,
+      attachmentUrl: string,
       language: 'ru' | 'ar'
     }
   }
 ): ProjectState => {
   const updatedUnit = { ...unit };
+  let activeConfirmationId: string | undefined = undefined;
 
   if (updates.workConfirmation) {
-    updatedUnit.workConfirmation = {
+    activeConfirmationId = Math.random().toString(36).substr(2, 9);
+    const newConfirmation = {
       ...updates.workConfirmation,
-      id: Math.random().toString(36).substr(2, 9),
+      id: activeConfirmationId,
       timestamp: Date.now()
     };
+    
+    updatedUnit.workConfirmation = newConfirmation;
+    updatedUnit.workConfirmations = [newConfirmation, ...(updatedUnit.workConfirmations || [])];
+
+    // If we are completing a task, link it to this confirmation
+    if (updates.updateLogStatus && updates.updateLogStatus.newStatus === TaskStatus.DONE) {
+      const { logId } = updates.updateLogStatus;
+      updatedUnit.history = updatedUnit.history.map(log => {
+        if (log.id === logId) {
+          return { ...log, confirmationId: activeConfirmationId };
+        }
+        return log;
+      });
+    }
   }
 
   if (updates.updateTenantInfo) {
@@ -204,7 +220,12 @@ export const updateUnit = (
     const { logId, newStatus } = updates.updateLogStatus;
     updatedUnit.history = updatedUnit.history.map(log => {
       if (log.id === logId) {
-        const updatedLog = { ...log, status: newStatus };
+        const updatedLog = { 
+          ...log, 
+          status: newStatus,
+          confirmationId: activeConfirmationId || log.confirmationId,
+          completedAt: newStatus === TaskStatus.DONE ? (log.completedAt || Date.now()) : undefined
+        };
         updatedUnit.statuses = {
           ...updatedUnit.statuses,
           [log.discipline]: newStatus
@@ -219,7 +240,9 @@ export const updateUnit = (
     const logEntry: TaskLog = {
       ...updates.newLog,
       id: Math.random().toString(36).substr(2, 9),
-      timestamp: Date.now()
+      confirmationId: activeConfirmationId,
+      timestamp: (updates.newLog as any).timestamp || Date.now(),
+      completedAt: updates.newLog.status === TaskStatus.DONE ? Date.now() : undefined
     };
     updatedUnit.history = [logEntry, ...updatedUnit.history];
     updatedUnit.statuses = {

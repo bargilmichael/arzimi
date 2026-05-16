@@ -100,7 +100,19 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-4">
           {units.map((num) => {
             const unitData = getUnit(state, buildingId, num);
-            const finalStatus = getUnitStatus(unitData, discipline) || TaskStatus.NOT_STARTED;
+            const unitStatuses = new Set<TaskStatus>();
+            unitData.history.forEach(h => {
+              if (discipline === 'general' || h.discipline === discipline) {
+                unitStatuses.add(h.status);
+              }
+            });
+
+            let finalStatus = getUnitStatus(unitData, discipline) || TaskStatus.NOT_STARTED;
+            // If there's a filter active and the unit has that status, show that color
+            if (statusFilter && unitStatuses.has(statusFilter)) {
+              finalStatus = statusFilter;
+            }
+            
             const config = STATUS_CONFIG[finalStatus];
             
             return (

@@ -15,6 +15,7 @@ export interface Appointment {
   time: string;
   tenantName: string;
   contractor: string;
+  contractorId: string;
   contractorEmail?: string;
   notes: string;
   isCompleted: boolean;
@@ -26,10 +27,13 @@ export interface TaskLog {
   timestamp: number;
   workerName: string;
   contractor: string;
+  contractorId: string;
   description: string;
   status: TaskStatus;
   discipline: Discipline;
   images?: string[]; // Array of base64 strings
+  completedAt?: number;
+  confirmationId?: string;
 }
 
 export interface TenantInfo {
@@ -44,7 +48,7 @@ export interface WorkConfirmation {
   tenantEmail?: string;
   originalDescription: string;
   translatedDescription: string;
-  signatureUrl: string; // Base64 or Firebase Storage URL
+  attachmentUrl: string; // Firebase Storage URL
   language: 'ru' | 'ar';
 }
 
@@ -57,6 +61,7 @@ export interface Unit {
   history: TaskLog[];
   appointments: Appointment[];
   workConfirmation?: WorkConfirmation;
+  workConfirmations?: WorkConfirmation[];
 }
 
 export interface Building {

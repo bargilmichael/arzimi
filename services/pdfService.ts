@@ -8,7 +8,7 @@ export interface PDFData {
   signerName: string;
   date: string;
   description: string;
-  signatureUrl: string;
+  attachmentUrl: string;
   lang: 'he' | 'ru' | 'ar';
 }
 
@@ -53,14 +53,14 @@ export const generateWorkConfirmationPDF = async (data: PDFData) => {
         </div>
       </div>
       
-      <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 60px;">
-        <div style="text-align: center;">
-          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 10px; font-weight: bold;">חתימת הדייר / Signature</p>
-          <img src="${data.signatureUrl}" style="height: 120px; border-bottom: 2px solid #1e40af;" />
-          <p style="font-weight: 800; color: #1e293b; margin-top: 10px;">${data.signerName}</p>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 20px; margin-top: 40px;">
+        <div style="text-align: center; width: 100%;">
+          <p style="color: #94a3b8; font-size: 12px; margin-bottom: 10px; font-weight: bold;">תמונה לאישור / Confirmation Photo</p>
+          <img src="${data.attachmentUrl}" style="max-width: 100%; max-height: 400px; border: 2px solid #1e40af; border-radius: 10px;" />
+          <p style="font-weight: 800; color: #1e293b; margin-top: 10px;">${data.lang === 'he' ? 'אושר ע"י מנהל העבודה:' : data.lang === 'ru' ? 'Подтверждено прорабом:' : 'تمت المصادقة من قبل مدير العمل:'} ${data.signerName}</p>
         </div>
-        <div style="text-align: center;">
-           <div style="width: 200px; height: 1px; background: #eee; margin-bottom: 10px;"></div>
+        <div style="text-align: center; width: 100%; margin-top: 20px;">
+           <div style="width: 100%; height: 1px; background: #eee; margin-bottom: 10px;"></div>
            <p style="color: #cbd5e1; font-size: 10px;">מסמך זה הופק באופן דיגיטלי ע"י מערכת בדק ארזי הנגב</p>
         </div>
       </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Unit, TaskStatus, Discipline, Appointment, TaskLog, WorkConfirmation } from '../types';
+import { Unit, TaskStatus, Discipline, Appointment, TaskLog, WorkConfirmation, ProjectState } from '../types';
 import { STATUS_CONFIG, PUBLIC_AREAS, CONTRACTORS } from '../constants';
 import { Language, translations } from '../translations';
 import WorkConfirmationModal from './WorkConfirmationModal';
@@ -8,12 +8,13 @@ import { generateWorkConfirmationPDF } from '../services/pdfService';
 
 interface Props {
   unit: Unit;
+  state: ProjectState;
   onClose: () => void;
   onSave: (updates: { 
-    newLog?: { status: TaskStatus, workerName: string, contractor: string, description: string, discipline: Discipline, images?: string[] },
+    newLog?: { status: TaskStatus, workerName: string, contractor: string, contractorId: string, description: string, discipline: Discipline, images?: string[] },
     updateLogStatus?: { logId: string, newStatus: TaskStatus },
     deleteLogId?: string,
-    editLog?: { id: string, status: TaskStatus, workerName: string, contractor: string, description: string, discipline: Discipline, images?: string[] },
+    editLog?: { id: string, status: TaskStatus, workerName: string, contractor: string, contractorId: string, description: string, discipline: Discipline, images?: string[] },
     newAppointment?: Omit<Appointment, 'id' | 'createdAt' | 'isCompleted'>,
     completeAppointmentId?: string,
     updateTenantInfo?: { name: string, phone: string },
@@ -22,7 +23,7 @@ interface Props {
       tenantEmail?: string,
       originalDescription: string,
       translatedDescription: string,
-      signatureUrl: string,
+      attachmentUrl: string,
       language: 'ru' | 'ar'
     }
   }) => void;
@@ -31,7 +32,7 @@ interface Props {
   userRole: 'admin' | 'contractor' | 'viewer';
 }
 
-const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipline, userRole }) => {
+const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, activeDiscipline, userRole }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'schedule' | 'history'>('history');
   
   // Tenant State
@@ -43,7 +44,9 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const [desc, setDesc] = useState('');
   const [contractor, setContractor] = useState(CONTRACTORS[0].id);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
-  const [status, setStatus] = useState<TaskStatus>(TaskStatus.DONE);
+  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reportTime, setReportTime] = useState(new Date().toTimeString().split(' ')[0].substring(0, 5));
+  const [status, setStatus] = useState<TaskStatus>(TaskStatus.NOT_STARTED);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [reportEmail, setReportEmail] = useState('');
   
@@ -63,8 +66,9 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const [needsFollowup, setNeedsFollowup] = useState(false);
   const [followupContractorId, setFollowupContractorId] = useState(CONTRACTORS[1].id); // Default to workers
   
-  const [isSignModalOpen, setIsSignModalOpen] = useState(false);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null);
+  const [viewingConfirmationId, setViewingConfirmationId] = useState<string | null>(null);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
 
   const t = translations[lang];
@@ -72,13 +76,64 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const isAdmin = userRole === 'admin';
   const isRestricted = userRole === 'contractor' && activeDiscipline !== 'general';
 
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    if (!year || !month || !day) return dateStr;
+    return `${day}/${month}/${year}`;
+  };
+
   const filteredHistory = isRestricted 
     ? unit.history.filter(log => log.discipline === activeDiscipline)
     : unit.history;
 
   const activeTasks = filteredHistory.filter(log => log.status !== TaskStatus.DONE);
-  const canAddReport = isAdmin || (userRole === 'contractor' && activeTasks.length > 0);
+  const canAddReport = isAdmin;
   const upcomingAppointments = unit.appointments.filter(app => !app.isCompleted);
+  const futureTasks = unit.history.filter(log => {
+    if (log.status === TaskStatus.DONE) return false;
+    const taskDate = new Date(log.timestamp).toISOString().split('T')[0];
+    const today = new Date().toISOString().split('T')[0];
+    return taskDate >= today; // Include today and future tasks in schedule
+  });
+
+  // Combine and sort by date
+  interface UnifiedScheduleItem {
+    id: string;
+    type: 'appointment' | 'task';
+    date: string;
+    time: string;
+    title: string;
+    subtitle: string;
+    description: string;
+    originalItem: any;
+  }
+
+  const unifiedItems: UnifiedScheduleItem[] = [
+    ...upcomingAppointments.map(app => ({
+      id: app.id,
+      type: 'appointment' as const,
+      date: app.date,
+      time: app.time,
+      title: app.tenantName,
+      subtitle: app.contractor,
+      description: app.notes,
+      originalItem: app
+    })),
+    ...futureTasks.map(task => ({
+      id: task.id,
+      type: 'task' as const,
+      date: new Date(task.timestamp).toISOString().split('T')[0],
+      time: new Date(task.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+      title: `${task.workerName}`,
+      subtitle: task.contractor,
+      description: task.description,
+      originalItem: task
+    }))
+  ].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return a.time.localeCompare(b.time);
+  });
 
   const handleQuickStatusUpdate = (logId: string, newStatus: TaskStatus) => {
     onSave({ updateLogStatus: { logId, newStatus } });
@@ -87,7 +142,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
 
   const handleStartWork = () => {
     setActiveTab('report');
-    setStatus(TaskStatus.IN_PROGRESS);
+    setStatus(TaskStatus.NOT_STARTED);
   };
 
   const handleDownloadPDF = async () => {
@@ -104,7 +159,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
         signerName: unit.workConfirmation.signerName,
         date: new Date(unit.workConfirmation.timestamp).toLocaleString('he-IL'),
         description: unit.workConfirmation.translatedDescription || unit.workConfirmation.originalDescription,
-        signatureUrl: unit.workConfirmation.signatureUrl,
+        attachmentUrl: unit.workConfirmation.attachmentUrl,
         lang: lang as 'he' | 'ru' | 'ar'
       });
       
@@ -154,10 +209,12 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
           status,
           workerName: worker,
           contractor: selectedContractorLabel,
+          contractorId: contractor,
           description: desc,
           discipline,
-          images: selectedImages.length > 0 ? selectedImages : undefined
-        }
+          images: selectedImages.length > 0 ? selectedImages : undefined,
+          timestamp: new Date(`${reportDate}T${reportTime}`).getTime()
+        } as any
       });
       setEditingLogId(null);
     } else {
@@ -166,18 +223,19 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
           status, 
           workerName: worker, 
           contractor: selectedContractorLabel, 
+          contractorId: contractor,
           description: desc, 
           discipline, 
-          images: selectedImages.length > 0 ? selectedImages : undefined 
+          images: selectedImages.length > 0 ? selectedImages : undefined,
+          timestamp: new Date(`${reportDate}T${reportTime}`).getTime()
         } 
       };
 
       // Sync with calendar if it's a manager (Foreman) task
       if (contractor === 'manager') {
-        const today = new Date().toISOString().split('T')[0];
-        const now = new Date().toTimeString().split(' ')[0].substring(0, 5);
+        const now = reportTime;
         updates.newAppointment = {
-          date: today,
+          date: reportDate,
           time: now,
           tenantName: displayName,
           contractor: selectedContractorLabel,
@@ -186,14 +244,18 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
         };
 
         if (reportEmail) {
+          const building = state.buildings.find(b => b.id === unit.buildingId);
+          const buildingName = building?.name || `בניין ${unit.buildingId.split('-')[3]}`;
+          const plotId = building?.plotId || unit.buildingId.split('-')[1];
+
           const title = encodeURIComponent(`${t.appName}: ${displayName}`);
-          const details = encodeURIComponent(`${t.building}: ${unit.buildingId.split('-')[1]}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.workerName}: ${worker}\n${t.whatWasDone}: ${desc}`);
-          const dateStr = today.replace(/-/g, '');
+          const details = encodeURIComponent(`${t.building}: ${buildingName}, ${t.plot}: ${plotId}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.workerName}: ${worker}\n${t.whatWasDone}: ${desc}`);
+          const dateStr = reportDate.replace(/-/g, '');
           const timeStr = now.replace(/:/g, '') + '00';
           const endTimeStr = (Number(timeStr) + 10000).toString().padStart(6, '0');
           
           const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dateStr}T${timeStr}/${dateStr}T${endTimeStr}`;
-          const body = encodeURIComponent(`${t.newReport} (${t.contractor_manager}):\n${t.dateLabel}: ${today}\n${t.timeLabel}: ${now}\n${t.building}: ${unit.buildingId.split('-')[1]}\n${t.whatWasDone}: ${desc}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить في التقويم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
+          const body = encodeURIComponent(`${t.newReport} (${t.contractor_manager}):\n${t.dateLabel}: ${formatDate(reportDate)}\n${t.timeLabel}: ${now}\n${t.building}: ${buildingName}\n${t.whatWasDone}: ${desc}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить تقוیم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
           
           window.location.href = `mailto:${reportEmail}?subject=${title}&body=${body}`;
         }
@@ -202,26 +264,33 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
       onSave(updates);
     }
 
-    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.DONE); setReportEmail(''); setActiveTab('history');
+    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED); setReportEmail(''); 
+    setReportDate(new Date().toISOString().split('T')[0]);
+    setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
+    setActiveTab('history');
   };
 
   const handleAppSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!appDate || !appTime || !appTenant) return alert(t.alertFillFields);
     const selectedContractor = (t as any)[CONTRACTORS.find(c => c.id === appContractor)?.labelKey || ''];
-    onSave({ newAppointment: { date: appDate, time: appTime, tenantName: appTenant, contractor: selectedContractor, contractorEmail: appEmail, notes: appNotes } });
+    onSave({ newAppointment: { date: appDate, time: appTime, tenantName: appTenant, contractor: selectedContractor, contractorId: appContractor, contractorEmail: appEmail, notes: appNotes } });
     
     // Auto-open mail client if email is provided
     if (appEmail) {
+      const building = state.buildings.find(b => b.id === unit.buildingId);
+      const buildingName = building?.name || `בניין ${unit.buildingId.split('-')[3]}`;
+      const plotId = building?.plotId || unit.buildingId.split('-')[1];
+
       const title = encodeURIComponent(`${t.appName}: ${displayName}`);
-      const details = encodeURIComponent(`${t.building}: ${unit.buildingId.split('-')[1]}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${appTenant}\n${t.notesLabel}: ${appNotes}`);
+      const details = encodeURIComponent(`${t.building}: ${buildingName}, ${t.plot}: ${plotId}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${appTenant}\n${t.notesLabel}: ${appNotes}`);
       const dateStr = appDate.replace(/-/g, '');
       const timeStr = appTime.replace(/:/g, '') + '00';
       const endTimeStr = (Number(timeStr) + 10000).toString().padStart(6, '0'); // +1 hour approx
       
       const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dateStr}T${timeStr}/${dateStr}T${endTimeStr}`;
       
-      const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${appDate}\n${t.timeLabel}: ${appTime}\n${t.tenantLabel}: ${appTenant}\n\n${t.notesLabel}: ${appNotes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить في التقويم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
+      const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${formatDate(appDate)}\n${t.timeLabel}: ${appTime}\n${t.tenantLabel}: ${appTenant}\n\n${t.notesLabel}: ${appNotes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить تقוים' : 'اضغط כאן للإضافة إلى التقويم'}:\n${gCalUrl}`);
       
       window.location.href = `mailto:${appEmail}?subject=${title}&body=${body}`;
     }
@@ -229,27 +298,33 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
     setAppDate(''); setAppTime(''); setAppTenant(''); setAppNotes(''); setAppEmail('');
   };
 
-  const handleSaveVisitSummary = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSaveVisitSummary = (e: React.FormEvent, openConfirmation = false) => {
+    if (e) e.preventDefault();
     if (!visitSummary) return alert(t.alertFillFields);
     
+    if (openConfirmation) {
+      setCompletingTaskId('APPOINTMENT_SUMMARY');
+      setIsPhotoModalOpen(true);
+      return;
+    }
+
     const updates: any = { completeAppointmentId: summarizingAppId };
     
     // Create a history log for the visit itself
     const managerLabel = (t as any)[CONTRACTORS.find(c => c.id === 'manager')?.labelKey || ''];
-    const workerNameForSummary = lang === 'he' ? 'סיכום ביקור' : lang === 'ru' ? 'Итоги визита' : 'ملخص الزيارة';
+    const workerNameForSummary = lang === 'he' ? 'סיכום ביקור' : lang === 'ru' ? 'Итоги визита' : 'ملخص الزיارة';
     updates.newLog = {
       status: needsFollowup ? TaskStatus.NEEDS_FOLLOWUP : TaskStatus.DONE,
       workerName: workerNameForSummary,
       contractor: managerLabel,
+      contractorId: 'manager',
       description: visitSummary,
       discipline: 'general'
     };
 
-    // If followup is needed, the next task will be for the selected contractor
+    // If followup is needed
     if (needsFollowup) {
       const selectedContractorLabel = (t as any)[CONTRACTORS.find(c => c.id === followupContractorId)?.labelKey || ''];
-      // We'll let the user create the specific contractor task in the history log by tagging it
       updates.newLog.description = `[${selectedContractorLabel}] ${visitSummary}`;
     }
 
@@ -261,15 +336,19 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   };
 
   const triggerCalendarInvite = (app: Appointment) => {
+    const building = state.buildings.find(b => b.id === unit.buildingId);
+    const buildingName = building?.name || `בניין ${unit.buildingId.split('-')[3]}`;
+    const plotId = building?.plotId || unit.buildingId.split('-')[1];
+
     const title = encodeURIComponent(`${t.appName}: ${displayName}`);
-    const details = encodeURIComponent(`${t.building}: ${unit.buildingId.split('-')[1]}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${app.tenantName}\n${t.notesLabel}: ${app.notes}`);
+    const details = encodeURIComponent(`${t.building}: ${buildingName}, ${t.plot}: ${plotId}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${app.tenantName}\n${t.notesLabel}: ${app.notes}`);
     const dateStr = app.date.replace(/-/g, '');
     const timeStr = app.time.replace(/:/g, '') + '00';
     const endTimeStr = (Number(timeStr) + 10000).toString().padStart(6, '0');
     
     const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dateStr}T${timeStr}/${dateStr}T${endTimeStr}`;
     
-    const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${app.date}\n${t.timeLabel}: ${app.time}\n${t.tenantLabel}: ${app.tenantName}\n\n${t.notesLabel}: ${app.notes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить في التقويم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
+    const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${formatDate(app.date)}\n${t.timeLabel}: ${app.time}\n${t.tenantLabel}: ${app.tenantName}\n\n${t.notesLabel}: ${app.notes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить تقویم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
     
     window.location.href = `mailto:${app.contractorEmail}?subject=${title}&body=${body}`;
   };
@@ -282,15 +361,37 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
   const handleWorkConfirmation = (data: any) => {
     try {
       const updates: any = { workConfirmation: data };
-      if (completingTaskId) {
+      
+      if (completingTaskId === 'APPOINTMENT_SUMMARY') {
+        const managerLabel = (t as any)[CONTRACTORS.find(c => c.id === 'manager')?.labelKey || ''];
+        const workerNameForSummary = lang === 'he' ? 'סיכום ביקור' : lang === 'ru' ? 'Итоги визита' : 'ملخص الزيارة';
+        updates.completeAppointmentId = summarizingAppId;
+        updates.newLog = {
+          status: needsFollowup ? TaskStatus.NEEDS_FOLLOWUP : TaskStatus.DONE,
+          workerName: workerNameForSummary,
+          contractor: managerLabel,
+          contractorId: 'manager',
+          description: visitSummary,
+          discipline: 'general'
+        };
+        if (needsFollowup) {
+          const selectedContractorLabel = (t as any)[CONTRACTORS.find(c => c.id === followupContractorId)?.labelKey || ''];
+          updates.newLog.description = `[${selectedContractorLabel}] ${visitSummary}`;
+        }
+        setVisitSummary('');
+        setSummarizingAppId(null);
+        setNeedsFollowup(false);
+      } else if (completingTaskId) {
         updates.updateLogStatus = { logId: completingTaskId, newStatus: TaskStatus.DONE };
       }
+      
       onSave(updates);
-      setIsSignModalOpen(false);
+      setIsPhotoModalOpen(false);
       setCompletingTaskId(null);
+      setActiveTab('history');
     } catch (error) {
       console.error("Error confirming work:", error);
-      setIsSignModalOpen(false); // Close anyway so user isn't stuck
+      setIsPhotoModalOpen(false); // Close anyway so user isn't stuck
       setCompletingTaskId(null);
     }
   };
@@ -301,6 +402,10 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
     setDesc(log.description);
     setStatus(log.status);
     setSelectedImages(log.images || []);
+    
+    const dateObj = new Date(log.timestamp);
+    setReportDate(dateObj.toISOString().split('T')[0]);
+    setReportTime(dateObj.toTimeString().split(' ')[0].substring(0, 5));
     
     // Find contractor ID by label
     const contractorMatch = CONTRACTORS.find(c => (t as any)[c.labelKey] === log.contractor);
@@ -331,7 +436,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
           <div className={(lang === 'he' || lang === 'ar') ? 'text-right' : 'text-left'}>
             <h3 className="text-3xl font-black text-blue-900 tracking-tight">{displayName}</h3>
             <div className="flex items-center gap-3 mt-1">
-               <span className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.building}: {unit.buildingId.split('-')[1]}</span>
+               <span className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">{t.plot}: {unit.buildingId.split('-')[1]} | {t.building}: {unit.buildingId.split('-')[3]}</span>
                {!isPublicArea && (
                  <div className="flex items-center gap-2">
                    <span className="text-gray-300">|</span>
@@ -384,14 +489,24 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                 <div className="space-y-4">
                   <div className="flex items-center justify-between px-2">
                     <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.activeTask}</h4>
-                    {canEdit && (
-                       <button 
-                         onClick={() => setIsSignModalOpen(true)}
-                         className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg hover:bg-blue-700 transition-all hover:scale-105"
-                       >
-                         🖋️ {t.signAndFinish}
-                       </button>
-                    )}
+                    <div className="flex gap-2">
+                      {isAdmin && (
+                         <button 
+                           onClick={() => setActiveTab('report')}
+                           className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg hover:bg-blue-700 transition-all hover:scale-105"
+                         >
+                           ➕ {t.newReport}
+                         </button>
+                      )}
+                      {canEdit && (
+                         <button 
+                           onClick={() => setIsPhotoModalOpen(true)}
+                           className="bg-green-600 text-white px-4 py-2 rounded-xl text-xs font-black shadow-lg hover:bg-green-700 transition-all hover:scale-105"
+                         >
+                           📸 {t.signAndFinish}
+                         </button>
+                      )}
+                    </div>
                   </div>
 
                   {unit.workConfirmation && (
@@ -425,10 +540,10 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                         </div>
                       </div>
 
-                      {unit.workConfirmation.signatureUrl && (
+                      {unit.workConfirmation.attachmentUrl && (
                         <div className="mt-4 pt-4 border-t border-green-100 flex flex-col items-center gap-4">
-                          <div className="bg-white p-2 rounded-2xl border border-green-200 shadow-inner">
-                            <img src={unit.workConfirmation.signatureUrl} alt="Signature" className="h-20 object-contain" />
+                          <div className="bg-white p-2 rounded-2xl border border-green-200 shadow-inner overflow-hidden max-w-full">
+                            <img src={unit.workConfirmation.attachmentUrl} alt="Confirmation Photo" className="max-h-48 object-contain rounded-xl" />
                           </div>
                           
                           <button 
@@ -482,7 +597,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                             <button 
                               onClick={() => {
                                 setCompletingTaskId(task.id);
-                                setIsSignModalOpen(true);
+                                setIsPhotoModalOpen(true);
                               }} 
                               className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black text-sm shadow-xl hover:bg-green-700 active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
@@ -539,13 +654,30 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                                     </button>
                                  </div>
                                )}
-                               <span className="text-[10px] text-gray-300 font-black bg-gray-50 px-2 py-1 rounded-lg">{new Date(log.timestamp).toLocaleDateString()}</span>
+                               <div className="flex flex-col items-end gap-1">
+                                 <span className="text-[9px] text-gray-400 font-black px-2 py-0.5 rounded-lg border border-gray-100 italic">
+                                   {(t as any).taskOpeningDate}: {formatDate(new Date(log.timestamp).toISOString().split('T')[0])}
+                                 </span>
+                                 {log.completedAt && (
+                                   <span className="text-[9px] text-green-600 font-black px-2 py-0.5 rounded-lg border border-green-100 italic">
+                                     {(t as any).taskCompletionDate}: {formatDate(new Date(log.completedAt).toISOString().split('T')[0])}
+                                   </span>
+                                 )}
+                               </div>
                              </div>
                           </div>
                           <span className="text-[10px] text-gray-400 font-bold uppercase">{log.contractor}</span>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-100">{log.description}</p>
+                      <p className="text-xs text-gray-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-100 break-words line-clamp-3">{log.description}</p>
+                      {log.confirmationId && (
+                        <button 
+                          onClick={() => setViewingConfirmationId(log.confirmationId || null)}
+                          className="mt-3 w-full py-2 bg-blue-50 text-blue-600 rounded-xl font-black text-[10px] hover:bg-blue-100 transition-all border border-blue-100 flex items-center justify-center gap-2"
+                        >
+                          👁️ {t.viewConfirmation}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -555,80 +687,123 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
 
           {activeTab === 'schedule' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
-              {/* Existing Appointments Section */}
-              {upcomingAppointments.length > 0 && (
-                <div className="space-y-4">
-                  <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest px-2">{t.upcomingAppointments}</h4>
-                  {upcomingAppointments.map(app => (
-                    <div key={app.id} className="bg-white border-2 border-slate-100 rounded-[2rem] p-6 shadow-sm">
-                      {summarizingAppId === app.id ? (
-                        <form onSubmit={handleSaveVisitSummary} className="space-y-4 animate-in zoom-in-95 duration-200">
-                           <h5 className="font-black text-blue-900 text-lg border-b pb-2 mb-4">📝 {t.summarizeVisit}</h5>
-                           <div className="space-y-2">
-                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.visitSummaryPlaceholder}</label>
-                             <textarea 
-                               value={visitSummary} 
-                               onChange={e => setVisitSummary(e.target.value)} 
-                               rows={3} 
-                               className="w-full p-4 rounded-2xl border-2 border-blue-100 focus:border-blue-500 outline-none font-bold bg-blue-50/30" 
-                               placeholder={t.visitSummaryPlaceholder}
-                             />
-                           </div>
-                           <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border">
-                             <label className="flex items-center gap-3 cursor-pointer">
-                               <input type="checkbox" checked={needsFollowup} onChange={e => setNeedsFollowup(e.target.checked)} className="w-6 h-6 rounded-lg accent-blue-600" />
-                               <span className="font-black text-gray-700 text-sm">{t.needFollowupTask}</span>
-                             </label>
-                           </div>
-                           {needsFollowup && (
-                             <div className="space-y-2 animate-in slide-in-from-top-2">
-                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.followupContractor}</label>
-                               <select 
-                                 value={followupContractorId} 
-                                 onChange={e => setFollowupContractorId(e.target.value)} 
-                                 className="w-full p-4 rounded-xl border-2 border-blue-100 bg-white font-black"
-                               >
-                                 {CONTRACTORS.filter(c => c.id !== 'manager').map(c => <option key={c.id} value={c.id}>{c.icon} {(t as any)[c.labelKey]}</option>)}
-                               </select>
+              {/* Unified Schedule Section */}
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-widest px-2">
+                  {lang === 'he' ? 'לו"ז פגישות ומשימות עבודה' : 'Schedule & Work Tasks'}
+                </h4>
+                
+                {unifiedItems.length > 0 ? (
+                  <div className="space-y-4">
+                    {unifiedItems.map(item => (
+                      <div key={item.id} className={`bg-white border-2 rounded-[2rem] p-6 shadow-sm transition-all hover:shadow-md ${item.type === 'task' ? 'border-indigo-100 bg-indigo-50/10' : 'border-slate-100'}`}>
+                        {item.type === 'appointment' && summarizingAppId === item.id ? (
+                          <form onSubmit={handleSaveVisitSummary} className="space-y-4 animate-in zoom-in-95 duration-200">
+                             <h5 className="font-black text-blue-900 text-lg border-b pb-2 mb-4">📝 {t.summarizeVisit}</h5>
+                             <div className="space-y-2">
+                               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.visitSummaryPlaceholder}</label>
+                               <textarea 
+                                 value={visitSummary} 
+                                 onChange={e => setVisitSummary(e.target.value)} 
+                                 rows={3} 
+                                 className="w-full p-4 rounded-2xl border-2 border-blue-100 focus:border-blue-500 outline-none font-bold bg-blue-50/30" 
+                                 placeholder={t.visitSummaryPlaceholder}
+                               />
                              </div>
-                           )}
-                           <div className="flex gap-2 pt-2">
-                             <button type="submit" className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all">{t.saveSummary}</button>
-                             <button type="button" onClick={() => setSummarizingAppId(null)} className="px-6 bg-slate-200 text-gray-600 rounded-2xl font-black hover:bg-slate-300">
-                               {lang === 'he' ? 'ביטול' : lang === 'ru' ? 'Отмена' : 'إلغاء'}
-                             </button>
-                           </div>
-                        </form>
-                      ) : (
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <div className="flex items-center gap-3 mb-2">
-                               <span className="bg-blue-600 text-white text-[10px] font-black px-3 py-1 rounded-lg">{app.date} | {app.time}</span>
-                               <span className="text-gray-400 font-black text-[10px] uppercase">{app.contractor}</span>
+                             <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border">
+                               <label className="flex items-center gap-3 cursor-pointer">
+                                 <input type="checkbox" checked={needsFollowup} onChange={e => setNeedsFollowup(e.target.checked)} className="w-6 h-6 rounded-lg accent-blue-600" />
+                                 <span className="font-black text-gray-700 text-sm">{t.needFollowupTask}</span>
+                               </label>
+                             </div>
+                             {needsFollowup && (
+                               <div className="space-y-2 animate-in slide-in-from-top-2">
+                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.followupContractor}</label>
+                                 <select 
+                                   value={followupContractorId} 
+                                   onChange={e => setFollowupContractorId(e.target.value)} 
+                                   className="w-full p-4 rounded-xl border-2 border-blue-100 bg-white font-black"
+                                 >
+                                   {CONTRACTORS.filter(c => c.id !== 'manager').map(c => <option key={c.id} value={c.id}>{c.icon} {(t as any)[c.labelKey]}</option>)}
+                                 </select>
+                               </div>
+                             )}
+                             <div className="flex flex-col sm:flex-row gap-2 pt-2">
+                               <button 
+                                 type="button" 
+                                 onClick={(e) => handleSaveVisitSummary(e, true)} 
+                                 className="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                               >
+                                 ✍️ {lang === 'he' ? 'שמור וחתום' : 'Save & Sign'}
+                               </button>
+                               <button 
+                                 type="button" 
+                                 onClick={(e) => handleSaveVisitSummary(e, false)} 
+                                 className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl hover:bg-blue-700 transition-all"
+                               >
+                                 💾 {t.saveSummary}
+                               </button>
+                               <button 
+                                 type="button" 
+                                 onClick={() => setSummarizingAppId(null)} 
+                                 className="px-6 bg-slate-200 text-gray-600 rounded-2xl font-black hover:bg-slate-300"
+                               >
+                                 {lang === 'he' ? 'ביטול' : lang === 'ru' ? 'Отмена' : 'إלגاء'}
+                               </button>
+                             </div>
+                          </form>
+                        ) : (
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <div className="flex items-center gap-3 mb-2">
+                                 <span className={`${item.type === 'task' ? 'bg-indigo-600' : 'bg-blue-600'} text-white text-[10px] font-black px-3 py-1 rounded-lg`}>{formatDate(item.date)} | {item.time}</span>
+                                 <span className="text-gray-400 font-black text-[10px] uppercase">{item.subtitle}</span>
+                                 {item.type === 'task' && (
+                                   <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black px-2 py-0.5 rounded-md border border-indigo-100 uppercase tracking-tighter">
+                                     {lang === 'he' ? 'משימה' : 'TASK'}
+                                   </span>
+                                 )}
+                              </div>
+                              <span className="font-black text-blue-900 text-xl block">{item.title}</span>
+                              {item.description && <p className="text-xs text-gray-500 mt-2 italic font-bold">"{item.description}"</p>}
+                              {item.type === 'appointment' && item.originalItem.contractorEmail && (
+                                <button 
+                                  onClick={() => triggerCalendarInvite(item.originalItem)}
+                                  className="mt-3 flex items-center gap-2 text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100"
+                                >
+                                  📧 {t.sendInvite}
+                                </button>
+                              )}
                             </div>
-                            <span className="font-black text-blue-900 text-xl block">{app.tenantName}</span>
-                            {app.notes && <p className="text-xs text-gray-500 mt-2 italic font-bold">"{app.notes}"</p>}
-                            {app.contractorEmail && (
+                            {item.type === 'appointment' ? (
                               <button 
-                                onClick={() => triggerCalendarInvite(app)}
-                                className="mt-3 flex items-center gap-2 text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100"
+                                onClick={() => setSummarizingAppId(item.id)} 
+                                className="bg-white border-2 border-blue-500 text-blue-600 px-6 py-2.5 rounded-xl text-xs font-black hover:bg-blue-50 transition-all shadow-sm"
                               >
-                                📧 {t.sendInvite}
+                                {canEdit ? `✏️ ${t.summarizeVisit}` : `👁️ ${lang === 'he' ? 'צפה בפרטים' : 'Просмотр'}`}
+                              </button>
+                            ) : (
+                              <button 
+                                onClick={() => {
+                                  handleEditHistoryLog(item.originalItem);
+                                  setActiveTab('report');
+                                }}
+                                className="bg-white border-2 border-indigo-500 text-indigo-600 px-6 py-2.5 rounded-xl text-xs font-black hover:bg-indigo-50 transition-all shadow-sm"
+                              >
+                                ✍️ {lang === 'he' ? 'עדכן משימה' : 'Update Task'}
                               </button>
                             )}
                           </div>
-                          <button 
-                            onClick={() => setSummarizingAppId(app.id)} 
-                            className="bg-white border-2 border-blue-500 text-blue-600 px-6 py-2.5 rounded-xl text-xs font-black hover:bg-blue-50 transition-all shadow-sm"
-                          >
-                            {canEdit ? `✏️ ${t.summarizeVisit}` : `👁️ ${lang === 'he' ? 'צפה בפרטים' : 'Просмотр'}`}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-12 bg-white rounded-[2rem] border-2 border-dashed border-slate-100 text-gray-400 font-bold text-sm">
+                    {lang === 'he' ? 'אין פגישות או משימות קרובות לדירה זו' : 'No upcoming appointments or tasks for this unit'}
+                  </div>
+                )}
+              </div>
 
               {isAdmin && (
                 <section className="bg-yellow-50/40 p-8 rounded-[2.5rem] border-2 border-yellow-100/60 shadow-inner">
@@ -645,7 +820,7 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                     <div className="md:col-span-2 space-y-2">
                       <label className="text-[10px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.contractorLabel}</label>
                       <select value={appContractor} onChange={e => setAppContractor(e.target.value)} disabled={!canEdit} className="w-full px-5 py-4 rounded-2xl border-2 border-gray-100 focus:border-yellow-400 outline-none bg-white font-black shadow-sm disabled:opacity-50">
-                        {CONTRACTORS.map(c => <option key={c.id} value={c.id}>{c.icon} {(t as any)[c.labelKey]}</option>)}
+                        {CONTRACTORS.filter(c => c.id === 'manager').map(c => <option key={c.id} value={c.id}>{c.icon} {(t as any)[c.labelKey]}</option>)}
                       </select>
                     </div>
                     <div className="md:col-span-2 space-y-2">
@@ -730,7 +905,9 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                     <button 
                       onClick={() => {
                         setEditingLogId(null);
-                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.DONE);
+                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED);
+                        setReportDate(new Date().toISOString().split('T')[0]);
+                        setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
                       }}
                       className="absolute right-0 text-xs font-black text-red-500 bg-red-50 px-3 py-1.5 rounded-xl hover:bg-red-100 transition-all border border-red-100"
                     >
@@ -752,6 +929,31 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.workerName}</label>
                     <input value={worker} onChange={e => setWorker(e.target.value)} className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none font-black shadow-sm text-lg placeholder:opacity-20" placeholder={t.workerExample} />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.dateLabel}</label>
+                    <input 
+                      type="date" 
+                      value={reportDate} 
+                      onChange={e => {
+                        const newDate = e.target.value;
+                        setReportDate(newDate);
+                        const today = new Date().toISOString().split('T')[0];
+                        if (newDate !== today) {
+                          setStatus(TaskStatus.NOT_STARTED);
+                        }
+                      }} 
+                      className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none font-black shadow-sm text-lg" 
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.timeLabel}</label>
+                    <input 
+                      type="time" 
+                      value={reportTime} 
+                      onChange={e => setReportTime(e.target.value)} 
+                      className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none font-black shadow-sm text-lg" 
+                    />
                   </div>
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.currentStatus}</label>
@@ -807,13 +1009,59 @@ const UnitModal: React.FC<Props> = ({ unit, onClose, onSave, lang, activeDiscipl
         </div>
       </div>
 
-      {isSignModalOpen && (
+      {isPhotoModalOpen && (
         <WorkConfirmationModal 
           lang={lang} 
           unitId={unit.id}
-          onClose={() => { setIsSignModalOpen(false); setCompletingTaskId(null); }}
+          onClose={() => { setIsPhotoModalOpen(false); setCompletingTaskId(null); }}
           onConfirm={handleWorkConfirmation}
         />
+      )}
+
+      {viewingConfirmationId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+           {(() => {
+             const conf = unit.workConfirmations?.find(c => c.id === viewingConfirmationId) || 
+                          (unit.workConfirmation?.id === viewingConfirmationId ? unit.workConfirmation : null);
+             if (!conf) return null;
+             return (
+               <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto">
+                 <div className="flex justify-between items-center mb-6">
+                   <h3 className="text-2xl font-black text-blue-900">📄 {t.workConfirmationTitle}</h3>
+                   <button onClick={() => setViewingConfirmationId(null)} className="text-3xl text-gray-400 hover:text-red-500">&times;</button>
+                 </div>
+                 <div className="space-y-6">
+                   <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                     <span>{(t as any).signedBy}: {conf.signerName}</span>
+                     <span>{new Date(conf.timestamp).toLocaleDateString()}</span>
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.descriptionInLang}</label>
+                     <div className="max-h-[150px] overflow-y-auto p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                       <p className="text-sm font-bold whitespace-pre-wrap">{conf.originalDescription}</p>
+                     </div>
+                   </div>
+                   {conf.translatedDescription && (
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.translatedDescriptionLabel}</label>
+                       <div className="max-h-[150px] overflow-y-auto p-4 bg-blue-50 text-blue-900 rounded-2xl border border-blue-100 shadow-inner">
+                         <p className="text-sm font-black italic whitespace-pre-wrap">{conf.translatedDescription}</p>
+                       </div>
+                     </div>
+                   )}
+                   {conf.attachmentUrl && (
+                     <div className="rounded-3xl overflow-hidden border-4 border-white shadow-lg">
+                       <img src={conf.attachmentUrl} alt="confirmation" className="w-full h-auto max-h-64 object-cover cursor-pointer" onClick={() => window.open(conf.attachmentUrl)} />
+                     </div>
+                   )}
+                   <button onClick={() => setViewingConfirmationId(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all">
+                     {lang === 'he' ? 'סגור' : lang === 'ru' ? 'Закрыть' : 'إغلاق'}
+                   </button>
+                 </div>
+               </div>
+             );
+           })()}
+        </div>
       )}
     </div>
   );

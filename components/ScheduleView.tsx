@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ProjectState, Unit, Appointment } from '../types';
+import { ProjectState, Unit, Appointment, TaskStatus } from '../types';
 import { Language, translations } from '../translations';
 import { CONTRACTORS, PUBLIC_AREAS } from '../constants';
 
@@ -14,121 +14,251 @@ interface Props {
 const ITEMS_PER_PAGE = 4;
 
 const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline }) => {
-  const t = translations[lang];
+  const t = translations[lang] as any;
   const [currentPage, setCurrentPage] = useState(0);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow'>('all');
+  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'range'>('all');
+  const [contractorFilter, setContractorFilter] = useState<string>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    const [year, month, day] = dateStr.split('-');
+    if (!year || !month || !day) return dateStr;
+    return `${day}/${month}/${year}`;
+  };
 
   const triggerCalendarInvite = (app: Appointment, unit: Unit) => {
     const unitIdentifier = unit.id.split('-').slice(1).join('-');
     const isPublicArea = isNaN(Number(unitIdentifier));
     const publicAreaConfig = isPublicArea ? PUBLIC_AREAS.find(a => a.id === unitIdentifier) : null;
     const unitName = isPublicArea ? (t as any)[publicAreaConfig?.labelKey || ''] : `${t.apartment} ${unitIdentifier}`;
+    
+    // Find building info
+    const building = state.buildings.find(b => b.id === unit.buildingId);
+    const buildingName = building?.name || `בניין ${unit.buildingId.split('-')[3]}`;
+    const plotId = building?.plotId || unit.buildingId.split('-')[1];
 
     const title = encodeURIComponent(`${t.appName}: ${unitName}`);
-    const details = encodeURIComponent(`${t.building}: ${unit.buildingId.split('-')[1]}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${app.tenantName}\n${t.notesLabel}: ${app.notes}`);
+    const details = encodeURIComponent(`${t.building}: ${buildingName}, ${t.lotLabel || 'מגרש'}: ${plotId}, ${t.unitLabel}: ${unit.id.split('-')[1]}\n${t.tenantLabel}: ${app.tenantName}\n${t.notesLabel}: ${app.notes}`);
     const dateStr = app.date.replace(/-/g, '');
     const timeStr = app.time.replace(/:/g, '') + '00';
     const endTimeStr = (Number(timeStr) + 10000).toString().padStart(6, '0');
     
     const gCalUrl = `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dateStr}T${timeStr}/${dateStr}T${endTimeStr}`;
     
-    const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${app.date}\n${t.timeLabel}: ${app.time}\n${t.tenantLabel}: ${app.tenantName}\n\n${t.notesLabel}: ${app.notes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить في التقويم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
+    const body = encodeURIComponent(`${t.scheduleTitle}:\n${t.dateLabel}: ${formatDate(app.date)}\n${t.timeLabel}: ${app.time}\n${t.tenantLabel}: ${app.tenantName}\n\n${t.notesLabel}: ${app.notes}\n\n${lang === 'he' ? 'להוספה ליומן לחץ כאן' : lang === 'ru' ? 'Нажмите здесь, чтобы добавить تقویم' : 'اضغط هنا للإضافة إلى التقويم'}:\n${gCalUrl}`);
     
     window.location.href = `mailto:${app.contractorEmail}?subject=${title}&body=${body}`;
   };
 
-  // Flatten all appointments from all units
-  const allAppointments: { unit: Unit, app: Appointment }[] = [];
-  (Object.values(state.units) as Unit[]).forEach(unit => {
-    unit.appointments.forEach(app => {
-      if (!app.isCompleted) {
-        const contractorId = CONTRACTORS.find(c => (t as any)[c.labelKey] === app.contractor)?.id;
-        
-        let matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all';
-        if (!matchesDiscipline) {
-          if (userDiscipline === 'plumbing') {
-            matchesDiscipline = contractorId === 'plumber';
-          } else {
-            matchesDiscipline = contractorId === userDiscipline;
-          }
-        }
+  // Flatten all appointments and tasks from all units (including past ones for filtering)
+  const unifiedItems: { 
+    unit: Unit; 
+    item: Appointment | any; 
+    type: 'appointment' | 'task';
+    date: string;
+    time: string;
+    title: string;
+    contractor: string;
+    contractorId?: string;
+    isCompleted: boolean;
+  }[] = [];
 
-        if (matchesDiscipline) {
-          allAppointments.push({ unit, app });
-        }
-      }
+  const today = new Date().toISOString().split('T')[0];
+
+  (Object.values(state.units) as Unit[]).forEach(unit => {
+    // Add Appointments
+    unit.appointments.forEach(app => {
+      const contractorId = CONTRACTORS.find(c => (t as any)[c.labelKey] === app.contractor)?.id;
+      unifiedItems.push({ 
+        unit, 
+        item: app, 
+        type: 'appointment',
+        date: app.date,
+        time: app.time,
+        title: app.tenantName,
+        contractor: app.contractor,
+        contractorId,
+        isCompleted: app.isCompleted
+      });
+    });
+
+    // Add Tasks
+    unit.history.forEach(log => {
+      const taskDate = new Date(log.timestamp).toISOString().split('T')[0];
+      const contractorId = CONTRACTORS.find(c => (t as any)[c.labelKey] === log.contractor)?.id;
+      unifiedItems.push({
+        unit,
+        item: log,
+        type: 'task',
+        date: taskDate,
+        time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+        title: log.workerName,
+        contractor: log.contractor,
+        contractorId,
+        isCompleted: log.status === TaskStatus.DONE
+      });
     });
   });
 
-  const today = new Date().toISOString().split('T')[0];
-  const tomorrowDate = new Date();
-  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-  const tomorrow = tomorrowDate.toISOString().split('T')[0];
+  // Filter based on role/discipline and user-selected filters
+  const filteredItems = unifiedItems.filter(item => {
+    // 1. Role/Discipline restriction
+    let matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all';
+    if (!matchesDiscipline) {
+      if (userDiscipline === 'plumbing') {
+        matchesDiscipline = item.contractorId === 'plumber';
+      } else {
+        matchesDiscipline = item.contractorId === userDiscipline;
+      }
+    }
+    if (!matchesDiscipline) return false;
 
-  // Filter appointments for the list
-  const filteredAppointments = allAppointments.filter(({ app }) => {
-    if (dateFilter === 'today') return app.date === today;
-    if (dateFilter === 'tomorrow') return app.date === tomorrow;
+    // 2. Contractor Filter
+    if (contractorFilter !== 'all' && item.contractorId !== contractorFilter) return false;
+
+    // 3. Date Filter
+    if (dateFilter === 'today') {
+      if (item.date !== today) return false;
+    } else if (dateFilter === 'tomorrow') {
+      const tomorrowDate = new Date();
+      tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+      const tomorrow = tomorrowDate.toISOString().split('T')[0];
+      if (item.date !== tomorrow) return false;
+    } else if (dateFilter === 'range') {
+      if (startDate && item.date < startDate) return false;
+      if (endDate && item.date > endDate) return false;
+    } else {
+      // 'all' filter - by default we only show incomplete items
+      if (item.isCompleted) return false;
+      // Also, if it's the 'all' view, we usually only care about today and future unless it's incomplete
+      if (item.date < today) return false;
+    }
+
     return true;
   });
 
   // Sort by date and time
-  filteredAppointments.sort((a, b) => 
-    new Date(`${a.app.date} ${a.app.time}`).getTime() - new Date(`${b.app.date} ${b.app.time}`).getTime()
+  filteredItems.sort((a, b) => 
+    new Date(`${a.date} ${a.time}`).getTime() - new Date(`${b.date} ${b.time}`).getTime()
   );
 
-  // Group appointments by date for load analysis
+  // Group by date for load analysis (only for future/relevant items)
   const loadByDate: Record<string, Record<string, number>> = {};
-  allAppointments.forEach(({ app }) => {
-    if (!loadByDate[app.date]) {
-      loadByDate[app.date] = {};
+  filteredItems.forEach(item => {
+    if (!loadByDate[item.date]) {
+      loadByDate[item.date] = {};
     }
-    loadByDate[app.date][app.contractor] = (loadByDate[app.date][app.contractor] || 0) + 1;
+    loadByDate[item.date][item.contractor] = (loadByDate[item.date][item.contractor] || 0) + 1;
   });
 
   const sortedDates = Object.keys(loadByDate).sort();
   const totalPages = Math.ceil(sortedDates.length / ITEMS_PER_PAGE);
   const visibleDates = sortedDates.slice(currentPage * ITEMS_PER_PAGE, (currentPage + 1) * ITEMS_PER_PAGE);
 
-  return (
-    <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-3xl shadow-sm border border-gray-100">
-        <h2 className="text-xl font-black text-gray-800 flex items-center gap-2">
-          <span className="text-2xl">📅</span>
-          {t.viewSchedule}
-        </h2>
+  const resetFilters = () => {
+    setDateFilter('all');
+    setContractorFilter('all');
+    setStartDate('');
+    setEndDate('');
+  };
 
-        <div className="flex bg-slate-100 p-1 rounded-xl w-full sm:w-auto">
+  return (
+    <div className="space-y-6">
+      {/* Primary Header & Quick Filters */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 bg-white p-6 rounded-[2.5rem] shadow-sm border border-gray-100">
+        <div className="flex items-center gap-4">
+          <div className="bg-blue-600 w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-blue-200">📅</div>
+          <div>
+            <h2 className="text-2xl font-black text-gray-900 leading-none">{t.viewSchedule}</h2>
+            <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-2">{t.totalItems}: {filteredItems.length}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+          <div className="flex bg-slate-100 p-1.5 rounded-2xl">
+            {(['all', 'today', 'tomorrow'] as const).map((filter) => (
+              <button 
+                key={filter}
+                onClick={() => setDateFilter(filter)}
+                className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${dateFilter === filter ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {t[filter]}
+              </button>
+            ))}
+            <button 
+              onClick={() => setDateFilter('range')}
+              className={`px-6 py-2.5 rounded-xl text-xs font-black transition-all ${dateFilter === 'range' ? 'bg-white text-blue-600 shadow-md' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              🗓️ {lang === 'he' ? 'טווח תאריכים' : 'Range'}
+            </button>
+          </div>
+          
           <button 
-            onClick={() => setDateFilter('all')}
-            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black transition-all ${dateFilter === 'all' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={resetFilters}
+            className="px-6 py-2.5 rounded-2xl text-xs font-black bg-slate-100 text-gray-400 hover:bg-slate-200 hover:text-gray-600 transition-all"
           >
-            {t.allUnits}
-          </button>
-          <button 
-            onClick={() => setDateFilter('today')}
-            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black transition-all ${dateFilter === 'today' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            {t.today}
-          </button>
-          <button 
-            onClick={() => setDateFilter('tomorrow')}
-            className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black transition-all ${dateFilter === 'tomorrow' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-            {t.tomorrow}
+            {t.resetFilters} ↺
           </button>
         </div>
       </div>
 
+      {/* Advanced Filter Bar */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white/60 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white shadow-sm ring-1 ring-gray-100">
+        {/* Contractor Filter */}
+        <div className="space-y-2">
+          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{t.contractorLabel}</label>
+          <select 
+            value={contractorFilter}
+            onChange={(e) => setContractorFilter(e.target.value)}
+            className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-white font-black text-sm focus:border-blue-500 transition-all outline-none"
+          >
+            <option value="all">{t.allContractors}</option>
+            {CONTRACTORS.map(c => (
+              <option key={c.id} value={c.id}>{c.icon} {t[c.labelKey]}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Date Range Inputs */}
+        <div className="md:col-span-2 grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{t.fromDate}</label>
+            <input 
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setDateFilter('range');
+              }}
+              className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-white font-black text-sm focus:border-blue-500 transition-all outline-none"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{t.toDate}</label>
+            <input 
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setDateFilter('range');
+              }}
+              className="w-full p-4 rounded-2xl border-2 border-slate-100 bg-white font-black text-sm focus:border-blue-500 transition-all outline-none"
+            />
+          </div>
+        </div>
+      </div>
+
       {/* Load Analysis Section */}
-      {allAppointments.length > 0 && (
+      {filteredItems.length > 0 && (
         <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
             <div className="flex items-center gap-3">
               <span className="bg-blue-50 p-2 rounded-xl text-xl">📊</span>
               <div>
                 <h3 className="font-black text-gray-800 leading-tight">{t.loadAnalysis}</h3>
-                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{t.totalAppointments}: {allAppointments.length}</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{lang === 'he' ? 'סה"כ פגישות ומשימות' : 'Total schedule items'}: {filteredItems.length}</p>
               </div>
             </div>
 
@@ -159,7 +289,7 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
             {visibleDates.map(date => (
               <div key={date} className={`p-4 rounded-2xl border-2 transition-all ${date === today ? 'bg-blue-50/50 border-blue-100' : 'bg-slate-50 border-transparent'}`}>
                 <div className="flex justify-between items-center mb-3">
-                  <span className="text-xs font-black text-gray-700">{date === today ? t.today : date}</span>
+                  <span className="text-xs font-black text-gray-700">{date === today ? t.today : formatDate(date)}</span>
                   <span className="bg-white px-2 py-0.5 rounded-lg text-[10px] font-black text-blue-600 shadow-sm border border-blue-50">
                     {Object.values(loadByDate[date]).reduce((a, b) => a + b, 0)}
                   </span>
@@ -183,7 +313,7 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                 {Object.values(loadByDate[date]).reduce((a, b) => a + b, 0) > 5 && (
                   <div className="mt-3 pt-2 border-t border-red-100">
                     <p className="text-[9px] text-red-500 font-black uppercase text-center">
-                      {lang === 'he' ? '⚠️ עומס גבוה ביום זה' : lang === 'ru' ? '⚠️ Высокая нагрузка' : '⚠️ ضغط عمل مرتفع اليوم'}
+                      {lang === 'he' ? '⚠️ עומס גבוה ביום זה' : lang === 'ru' ? '⚠️ Высокая нагрузка' : '⚠️ ضغط عمل مرتفع היום'}
                     </p>
                   </div>
                 )}
@@ -193,42 +323,52 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
         </div>
       )}
 
-      {filteredAppointments.length === 0 ? (
+      {filteredItems.length === 0 ? (
         <div className="bg-white rounded-2xl p-12 text-center border-2 border-dashed text-gray-400">
           <div className="text-4xl mb-4">📭</div>
-          <p>{t.noAppointments}</p>
+          <p>{lang === 'he' ? 'אין פגישות או משימות לטווח שנבחר' : t.noAppointments}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredAppointments.map(({ unit, app }) => {
+          {filteredItems.map(({ unit, item, type, date, time, title, contractor }) => {
             // Correct extraction of building number and unit identifier
             const buildingNum = unit.buildingId.split('-')[1];
             const unitIdParts = unit.id.split('-');
             const unitIdentifier = unitIdParts[unitIdParts.length - 1];
             const isPublic = isNaN(Number(unitIdentifier));
-            const isToday = app.date === today;
+            const isToday = date === today;
             
             // Find contractor icon
-            const contractorConfig = CONTRACTORS.find(c => (t as any)[c.labelKey] === app.contractor);
+            const contractorConfig = CONTRACTORS.find(c => (t as any)[c.labelKey] === contractor);
 
             return (
               <button
-                key={app.id}
+                key={`${type}-${item.id}`}
                 onClick={() => onSelectUnit(unit.buildingId, isPublic ? unitIdentifier : Number(unitIdentifier))}
                 className={`text-right group p-4 rounded-2xl border-2 transition-all hover:shadow-lg ${
                   isToday ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'
-                }`}
+                } ${type === 'task' ? 'border-indigo-100' : ''}`}
               >
                 <div className="flex justify-between items-start mb-3">
                   <div className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${isToday ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                    {isToday ? t.today : app.date}
+                    {isToday ? t.today : formatDate(date)}
                   </div>
-                  <div className="text-lg font-bold text-blue-900">{app.time}</div>
+                  <div className="flex items-center gap-2">
+                    {type === 'task' && (
+                      <span className="bg-indigo-50 text-indigo-600 text-[9px] font-black px-2 py-0.5 rounded-md border border-indigo-100 italic uppercase">
+                        {lang === 'he' ? 'משימה' : 'Task'}
+                      </span>
+                    )}
+                    <div className="text-lg font-bold text-blue-900">{time}</div>
+                  </div>
                 </div>
 
                 <div className="mb-3">
                   <div className="text-sm text-gray-800">
-                    <span className="font-medium opacity-60">{t.building} {buildingNum}</span>
+                    <span className="font-medium opacity-60">
+                      {state.buildings.find(b => b.id === unit.buildingId)?.plotId && `${t.plot} ${state.buildings.find(b => b.id === unit.buildingId)?.plotId}, `}
+                      {state.buildings.find(b => b.id === unit.buildingId)?.name || `${t.building} ${unit.buildingId.split('-')[3]}`}
+                    </span>
                     <span className="mx-2 opacity-30">|</span>
                     <span className="font-bold text-blue-800">
                       {isPublic ? (t as any)[`area_${unitIdentifier}`] : `${t.apartment} ${unitIdentifier}`}
@@ -237,26 +377,26 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                   
                   <div className="flex flex-wrap items-center gap-2 mt-2">
                     <span className="text-xs text-gray-500 flex items-center gap-1">
-                      <span>👤</span> {app.tenantName}
+                      <span>👤</span> {title}
                     </span>
-                    <span className={`text-[10px] border px-2 py-0.5 rounded-full font-bold shadow-sm flex items-center gap-1 ${app.contractor.includes('מנהל') ? 'bg-gray-100 text-gray-700 border-gray-300' : 'bg-white text-blue-700 border-blue-100'}`}>
-                      {contractorConfig?.icon || '👔'} {app.contractor}
+                    <span className={`text-[10px] border px-2 py-0.5 rounded-full font-bold shadow-sm flex items-center gap-1 ${contractor.includes('מנהל') ? 'bg-gray-100 text-gray-700 border-gray-300' : 'bg-white text-blue-700 border-blue-100'}`}>
+                      {contractorConfig?.icon || '👔'} {contractor}
                     </span>
                   </div>
                 </div>
 
-                {app.notes && (
+                {(item.notes || item.description) && (
                   <div className="text-[11px] text-gray-600 bg-white/50 p-2 rounded-lg border border-gray-200/50 italic mt-2">
-                    {app.notes}
+                    {item.notes || item.description}
                   </div>
                 )}
                 
                 <div className="mt-3 flex justify-between items-center">
-                   {app.contractorEmail && (
+                   {type === 'appointment' && item.contractorEmail && (
                      <button 
                        onClick={(e) => {
                          e.stopPropagation();
-                         triggerCalendarInvite(app, unit);
+                         triggerCalendarInvite(item, unit);
                        }}
                        className="text-[10px] font-black text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors border border-blue-100 flex items-center gap-1"
                      >

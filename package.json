@@ -1,5 +1,5 @@
 {
-  "name": "arazi-hanegev-inspection",
+  "name": "copy-of-מחלקת-בדק-ארזי-הנגב",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -18,12 +18,6 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-signature-canvas": "^1.0.6"
-  },
-  "overrides": {
-    "react-signature-canvas": {
-      "react": "$react",
-      "react-dom": "$react-dom"
-    }
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

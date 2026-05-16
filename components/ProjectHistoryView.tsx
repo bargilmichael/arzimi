@@ -19,8 +19,10 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
   const [filterBuilding, setFilterBuilding] = useState<string>('all');
   const [filterContractor, setFilterContractor] = useState<string>('all');
   const [filterUnit, setFilterUnit] = useState<string>('all');
+  const [filterDate, setFilterDate] = useState<string>('');
   
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
+  const [viewingConfirmationId, setViewingConfirmationId] = useState<string | null>(null);
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<TaskStatus>(TaskStatus.NOT_STARTED);
   
@@ -30,6 +32,14 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
     unit?: Unit;
     logId?: string;
   }>({ show: false, type: 'single' });
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return '';
+    if (dateStr.includes('/')) return dateStr; // Already formatted
+    const [year, month, day] = dateStr.split('-');
+    if (!year || !month || !day) return dateStr;
+    return `${day}/${month}/${year}`;
+  };
 
   const t = translations[lang];
 
@@ -89,20 +99,24 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
         const unitIdentifier = unitIdParts[unitIdParts.length - 1];
         const matchesUnit = filterUnit === 'all' || unitIdentifier === filterUnit;
 
-        if (matchesPlot && matchesBuilding && matchesContractor && matchesUnit && matchesDiscipline) {
+        const logDate = new Date(log.timestamp).toISOString().split('T')[0];
+        const matchesDate = !filterDate || logDate === filterDate;
+
+        if (matchesPlot && matchesBuilding && matchesContractor && matchesUnit && matchesDiscipline && matchesDate) {
           allLogs.push({ log, unit });
         }
       });
     });
     // Sort by newest first
     return allLogs.sort((a, b) => b.log.timestamp - a.log.timestamp);
-  }, [state, filterPlot, filterBuilding, filterContractor, filterUnit, buildingToPlot]);
+  }, [state, filterPlot, filterBuilding, filterContractor, filterUnit, filterDate, buildingToPlot]);
 
   const resetFilters = () => {
     setFilterPlot('all');
     setFilterBuilding('all');
     setFilterContractor('all');
     setFilterUnit('all');
+    setFilterDate('');
   };
 
   return (
@@ -134,7 +148,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
         </div>
         
         {/* Filters Grid */}
-        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
           {/* Plot Filter */}
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-gray-400 uppercase px-1">{(t as any).filterByPlot}</label>
@@ -215,6 +229,17 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             </select>
           </div>
 
+          {/* Date Filter */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-400 uppercase px-1">{t.dateLabel}</label>
+            <input 
+              type="date"
+              value={filterDate}
+              onChange={(e) => setFilterDate(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none h-[42px]"
+            />
+          </div>
+
           {/* Reset Button */}
           <div className="flex items-end">
             <button 
@@ -238,7 +263,8 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             {t.resultsFound.replace('{count}', filteredLogs.length.toString())}
           </div>
           {filteredLogs.map(({ log, unit }) => {
-            const buildingNum = unit.buildingId.split('-').pop();
+            const buildingIdParts = unit.buildingId.split('-');
+            const buildingNum = buildingIdParts[3] || buildingIdParts[buildingIdParts.length - 1];
             const plotId = buildingToPlot[unit.buildingId];
             const plot = state.plots.find(p => p.id === plotId);
             const plotName = plot ? plot.name : plotId;
@@ -247,11 +273,14 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             const isPublic = isNaN(Number(unitIdentifier));
             const statusCfg = STATUS_CONFIG[log.status];
 
+            const dateObj = new Date(log.timestamp);
+            const formattedDate = formatDate(dateObj.toISOString().split('T')[0]);
+            const formattedTime = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+
             return (
               <div 
                 key={log.id} 
-                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col md:flex-row gap-4 items-start md:items-center hover:border-blue-200 transition-colors"
-                // Removed onClick from parent to avoid event conflicts
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col md:flex-row gap-4 items-start md:items-center hover:border-blue-200 transition-colors overflow-hidden"
               >
                 <div 
                   className="flex gap-2 min-w-[120px] cursor-pointer group"
@@ -266,14 +295,14 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                   </div>
                 </div>
 
-                <div className="flex-1 space-y-1">
+                <div className="flex-1 space-y-1 min-w-0 overflow-hidden">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-gray-800">{log.workerName}</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded border font-bold ${log.contractor.includes('מנהל') ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
+                    <span className="text-sm font-bold text-gray-800 truncate max-w-[150px]">{log.workerName}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded border font-bold whitespace-nowrap ${log.contractor.includes('מנהל') ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
                       {log.contractor}
                     </span>
-                    <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded">
-                      {new Date(log.timestamp).toLocaleString(lang === 'ru' ? 'ru-RU' : lang === 'ar' ? 'ar-SA' : 'he-IL')}
+                    <span className="text-[10px] text-gray-400 bg-gray-50 px-2 py-0.5 rounded whitespace-nowrap">
+                      {formattedDate} | {formattedTime}
                     </span>
                   </div>
                   
@@ -282,7 +311,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                       <textarea 
                         value={editDescription}
                         onChange={(e) => setEditDescription(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:ring-1 focus:ring-blue-500"
+                        className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:ring-1 focus:ring-blue-500 bg-white"
                         rows={2}
                       />
                       <div className="flex gap-2">
@@ -310,44 +339,64 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-600 line-clamp-2 md:line-clamp-1">{log.description}</p>
+                    <p className="text-sm text-gray-600 break-words line-clamp-2 md:line-clamp-2 leading-tight">
+                      {log.description}
+                    </p>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end flex-shrink-0 border-t md:border-t-0 pt-3 md:pt-0" onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center gap-2">
-                    {userRole === 'admin' && editingLogId !== log.id && (
-                      <div className="flex gap-1 mr-2 border-r pr-2 border-gray-100">
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleEditStart(log);
-                          }}
-                          className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors z-10"
-                          title={(t as any).edit}
-                        >
-                          <span className="pointer-events-none">✏️</span>
-                        </button>
-                        <button 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDelete(unit, log.id);
-                          }}
-                          className="p-1.5 hover:bg-red-50 rounded-lg text-red-600 transition-colors z-10"
-                          title={(t as any).delete}
-                        >
-                          <span className="pointer-events-none">🗑️</span>
-                        </button>
+                    {editingLogId !== log.id && (
+                      <div className="flex gap-1 mr-2 border-r pr-2 border-gray-100 items-center">
+                        {log.confirmationId && (
+                          <button 
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setViewingConfirmationId(log.confirmationId || null);
+                            }}
+                            className="flex items-center gap-1 px-2 py-1.5 bg-green-50 hover:bg-green-100 rounded-xl text-green-700 transition-all border border-green-100 shadow-sm"
+                            title={t.viewConfirmation}
+                          >
+                            <span className="text-sm">📄</span>
+                            <span className="text-[10px] font-black hidden sm:inline uppercase">{(t as any).viewConfirmation || 'אישור'}</span>
+                          </button>
+                        )}
+                        {(userRole === 'admin' || userRole === 'contractor') && (
+                          <>
+                            <button 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleEditStart(log);
+                              }}
+                              className="p-1.5 hover:bg-blue-50 rounded-lg text-blue-600 transition-colors"
+                              title={(t as any).edit}
+                            >
+                              <span className="pointer-events-none">✏️</span>
+                            </button>
+                            <button 
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleDelete(unit, log.id);
+                              }}
+                              className="p-1.5 hover:bg-red-50 rounded-lg text-red-600 transition-colors"
+                              title={(t as any).delete}
+                            >
+                              <span className="pointer-events-none">🗑️</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
-                    <span className={`text-[10px] px-3 py-1 rounded-full border font-bold ${statusCfg.color}`}>
+                    <span className={`text-[10px] px-3 py-1 rounded-full border font-bold whitespace-nowrap ${statusCfg.color}`}>
                       {(t as any)[statusCfg.labelKey]}
                     </span>
                   </div>
                   <button 
-                    className="text-blue-600 text-xs font-bold hover:underline whitespace-nowrap bg-blue-50 px-3 py-1.5 rounded-lg"
+                    className="text-blue-600 text-[11px] font-black hover:underline whitespace-nowrap bg-blue-50 px-4 py-2 rounded-xl border border-blue-100 shadow-sm"
                     onClick={() => onSelectUnit(unit.buildingId, isPublic ? unitIdentifier : Number(unitIdentifier))}
                   >
                     {(t as any).viewDetails} ←
@@ -389,6 +438,67 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {viewingConfirmationId && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setViewingConfirmationId(null)}>
+           {(() => {
+             // Find the log and unit to get the confirmation
+             let foundConf = null;
+             for (const unit of Object.values(state.units) as Unit[]) {
+               const conf = unit.workConfirmations?.find(c => c.id === viewingConfirmationId) || 
+                            (unit.workConfirmation?.id === viewingConfirmationId ? unit.workConfirmation : null);
+               if (conf) {
+                 foundConf = conf;
+                 break;
+               }
+             }
+
+             if (!foundConf) return null;
+
+             return (
+               <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl p-8 animate-in zoom-in-95 duration-300 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                 <div className="flex justify-between items-center mb-6">
+                   <h3 className="text-2xl font-black text-blue-900">📄 {t.workConfirmationTitle}</h3>
+                   <button onClick={() => setViewingConfirmationId(null)} className="text-3xl text-gray-400 hover:text-red-500">&times;</button>
+                 </div>
+                 <div className="space-y-6">
+                   <div className="flex justify-between text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                     <span>{(t as any).signedBy}: {foundConf.signerName}</span>
+                     <span>{new Date(foundConf.timestamp).toLocaleDateString()}</span>
+                   </div>
+                   <div className="space-y-2">
+                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.descriptionInLang}</label>
+                     <div className="max-h-[200px] overflow-y-auto p-4 bg-slate-50 rounded-2xl border border-slate-100 shadow-inner">
+                       <p className="text-sm font-bold whitespace-pre-wrap">{foundConf.originalDescription}</p>
+                     </div>
+                   </div>
+                   {foundConf.translatedDescription && (
+                     <div className="space-y-2">
+                       <label className="text-[10px] font-black text-blue-500 uppercase tracking-widest">{t.translatedDescriptionLabel}</label>
+                       <div className="max-h-[200px] overflow-y-auto p-4 bg-blue-50 text-blue-900 rounded-2xl border border-blue-100 shadow-inner">
+                         <p className="text-sm font-black italic whitespace-pre-wrap">{foundConf.translatedDescription}</p>
+                       </div>
+                     </div>
+                   )}
+                   {foundConf.attachmentUrl && (
+                     <div className="rounded-3xl overflow-hidden border-4 border-white shadow-lg">
+                       <img 
+                         src={foundConf.attachmentUrl} 
+                         alt="confirmation" 
+                         className="w-full h-auto max-h-64 object-cover cursor-pointer" 
+                         onClick={() => window.open(foundConf.attachmentUrl)} 
+                       />
+                     </div>
+                   )}
+                   <button onClick={() => setViewingConfirmationId(null)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all">
+                     {lang === 'he' ? 'סגור' : lang === 'ru' ? 'Закрыть' : 'إغلاق'}
+                   </button>
+                 </div>
+               </div>
+             );
+           })()}
         </div>
       )}
     </div>

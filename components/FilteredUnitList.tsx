@@ -27,9 +27,24 @@ const FilteredUnitList: React.FC<Props> = ({ state, lang, selectedPlotId, discip
     targetBuildings.forEach(building => {
       for (let i = 1; i <= building.totalUnits; i++) {
         const unit = getUnit(state, building.id, i);
-        const finalStatus = getUnitStatus(unit, discipline);
         
-        if (finalStatus === statusFilter) {
+        // Identify the LATEST status for each contractor/discipline
+        const latestStatuses = new Map<string, TaskStatus>();
+        
+        const logs = discipline === 'general' 
+          ? unit.history 
+          : unit.history.filter(h => h.discipline === discipline);
+          
+        logs.forEach(log => {
+          if (!latestStatuses.has(log.contractor)) {
+            latestStatuses.set(log.contractor, log.status);
+          }
+        });
+
+        // Current unique statuses for this unit
+        const unitStatuses = new Set<TaskStatus>(latestStatuses.values());
+        
+        if (unitStatuses.has(statusFilter)) {
           results.push(unit);
         }
       }
