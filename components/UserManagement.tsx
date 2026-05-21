@@ -6,11 +6,23 @@ import { Language, translations } from '../translations';
 import { DisciplineDefinition } from '../types';
 
 interface UserProfile {
+  id: string;
   uid: string | null;
   email: string;
   displayName: string | null;
   role: 'admin' | 'contractor' | 'viewer';
   discipline?: string;
+  blocked?: boolean;
+}
+
+interface LoginAttempt {
+  id: string;
+  email?: string;
+  displayName?: string;
+  timestamp: any;
+  userAgent: string;
+  status: 'unauthorized' | 'blocked' | 'no_email' | 'error';
+  error?: string;
 }
 
 interface Props {
@@ -31,6 +43,7 @@ const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
 const UserManagement: React.FC<Props> = ({ lang }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [disciplines, setDisciplines] = useState<DisciplineDefinition[]>([]);
+  const [loginAttempts, setLoginAttempts] = useState<LoginAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   
   // User Form State
@@ -75,9 +88,16 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
       }
     });
 
+    // Sync Login Attempts
+    const unsubAttempts = onSnapshot(collection(db, 'login_attempts'), (snapshot) => {
+      const attempts = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id } as LoginAttempt));
+      setLoginAttempts(attempts.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)).slice(0, 50));
+    });
+
     return () => {
       unsubUsers();
       unsubDisc();
+      unsubAttempts();
     };
   }, []);
 
@@ -124,6 +144,16 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
     } catch (error) {
       console.error("Error updating discipline:", error);
       alert(t.errorUpdatingRole);
+    }
+  };
+
+  const handleToggleBlock = async (userId: string, currentStatus: boolean) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, { blocked: !currentStatus });
+    } catch (error) {
+      console.error("Error toggling block:", error);
+      alert(lang === 'he' ? 'שגיאה בעדכון חסימה' : 'Error updating block status');
     }
   };
 
@@ -307,7 +337,7 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {users.map((user: any) => (
+              {users.filter(u => !u.blocked).map((user: UserProfile) => (
                 <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="py-4 px-4 font-black text-gray-700">{user.displayName || '---'}</td>
                   <td className="py-4 px-4 font-bold text-gray-500 text-sm">{user.email}</td>
@@ -343,22 +373,117 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
                     {user.role !== 'contractor' && <span className="text-gray-300 font-bold text-xs uppercase">---</span>}
                   </td>
                   <td className="py-4 px-4 text-left">
-                    {user.email !== 'bargil.michael@gmail.com' && (
+                    <div className="flex items-center justify-end gap-2">
+                       {user.email !== 'bargil.michael@gmail.com' && (
                         <button 
-                          onClick={() => handleDeleteUser(user.id, user.email)}
-                          className="text-red-400 hover:text-red-600 p-2 transition-colors"
-                          title={lang === 'he' ? 'מחק משתמש' : lang === 'ru' ? 'Удалить пользователя' : 'حذف المستخدم'}
+                          onClick={() => handleToggleBlock(user.id, false)}
+                          className="bg-orange-50 text-orange-600 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-orange-100 transition-all border border-orange-100"
+                          title={(t as any).block}
                         >
-                        🗑️
-                      </button>
-                    )}
+                          🚫 {(t as any).block}
+                        </button>
+                      )}
+                      {user.email !== 'bargil.michael@gmail.com' && (
+                          <button 
+                            onClick={() => handleDeleteUser(user.id, user.email)}
+                            className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition-colors border border-red-100"
+                            title={lang === 'he' ? 'מחק משתמש' : lang === 'ru' ? 'Удалить пользователя' : 'حذف المستخدم'}
+                          >
+                          🗑️
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {users.some(u => u.blocked) && (
+          <div className="mt-12 border-t pt-8">
+            <h3 className="text-xl font-black text-red-600 mb-6 flex items-center gap-3">
+              <span className="bg-red-50 p-2 rounded-xl">🚫</span> 
+              {(t as any).emailsBlocked}
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.userName}</th>
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.userEmail}</th>
+                    <th className="py-3 px-4"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {users.filter(u => u.blocked).map((user: UserProfile) => (
+                    <tr key={user.id} className="bg-red-50/20">
+                      <td className="py-3 px-4 font-bold text-gray-700">{user.displayName || '---'}</td>
+                      <td className="py-3 px-4 font-bold text-gray-400 text-sm italic line-through decoration-red-300">{user.email}</td>
+                      <td className="py-3 px-4 text-left">
+                        <button 
+                          onClick={() => handleToggleBlock(user.id, true)}
+                          className="bg-green-600 text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase hover:bg-green-700 transition-all shadow-md"
+                        >
+                          🔓 {(t as any).unblock}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         
+        {loginAttempts.length > 0 && (
+          <div className="mt-12 border-t pt-8">
+            <h3 className="text-xl font-black text-blue-600 mb-6 flex items-center gap-3">
+              <span className="bg-blue-50 p-2 rounded-xl">🕒</span> 
+              {(t as any).recentAttempts}
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{(t as any).attemptDate}</th>
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.userEmail}</th>
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{(t as any).device}</th>
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">סטטוס</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loginAttempts.map((attempt) => (
+                    <tr key={attempt.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-4 text-xs font-bold text-gray-500">
+                        {attempt.timestamp?.toDate ? attempt.timestamp.toDate().toLocaleString('he-IL') : '---'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex flex-col">
+                          <span className="font-black text-gray-700 text-sm">{attempt.email || '---'}</span>
+                          <span className="text-[10px] font-bold text-gray-400">{attempt.displayName}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-[10px] text-gray-400 max-w-[200px] truncate" title={attempt.userAgent}>
+                        {attempt.userAgent || '---'}
+                      </td>
+                      <td className="py-3 px-4">
+                         <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${
+                           attempt.status === 'unauthorized' ? 'bg-orange-100 text-orange-600' :
+                           attempt.status === 'blocked' ? 'bg-red-100 text-red-600' :
+                           'bg-gray-100 text-gray-600'
+                         }`}>
+                           {(t as any)[attempt.status] || attempt.status}
+                         </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         <div className="mt-8 p-4 bg-blue-50 rounded-2xl border border-blue-100">
           <p className="text-xs font-bold text-blue-700 leading-relaxed">
             💡 {t.roleExplanation}

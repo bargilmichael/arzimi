@@ -150,7 +150,18 @@ export const translations = {
     taskCompletionDate: "תאריך סיום המשימה",
     fromDate: "מתאריך",
     toDate: "עד תאריך",
-    resetFilters: "איפוס סינונים"
+    resetFilters: "איפוס סינונים",
+    blockedUsers: "רשימת חסומים",
+    block: "חסום",
+    unblock: "בטל חסימה",
+    emailsBlocked: "מיילים חסומים",
+    accessBlocked: "הגישה למשתמש זה חסומה",
+    loginAttempts: "ניסיונות התחברות",
+    recentAttempts: "ניסיונות התחברות אחרונים",
+    noAttempts: "אין ניסיונות התחברות מתועדים",
+    attemptDate: "תאריך ניסיון",
+    device: "מכשיר/דפדפן",
+    unauthorized: "לא מורשה"
   },
   ru: {
     appName: "Отдел проверки Arazi HaNegev",
@@ -318,7 +329,18 @@ export const translations = {
     taskCompletionDate: "Дата завершения задачи",
     fromDate: "С даты",
     toDate: "По дату",
-    resetFilters: "Сбросить фильтры"
+    resetFilters: "Сбросить фильтры",
+    blockedUsers: "Заблокированные",
+    block: "Блок",
+    unblock: "Разблокировать",
+    emailsBlocked: "Заблокированные адреса",
+    accessBlocked: "Доступ для этого пользователя заблокирован",
+    loginAttempts: "Попытки входа",
+    recentAttempts: "Последние попытки входа",
+    noAttempts: "Нет зафиксированных попыток входа",
+    attemptDate: "Дата попытки",
+    device: "Устройство/Браузер",
+    unauthorized: "Неавторизован"
   },
   ar: {
     appName: "قسم فحص أرازي النقب",
@@ -486,6 +508,17 @@ export const translations = {
     taskCompletionDate: "تاريخ انتهاء المهمة",
     fromDate: "من تاريخ",
     toDate: "إلى تاريخ",
-    resetFilters: "إعادة ضبط الفلاتر"
+    resetFilters: "إعادة ضبط الفلاتر",
+    blockedUsers: "قائمة المحظورين",
+    block: "حظر",
+    unblock: "إلغاء الحظر",
+    emailsBlocked: "رسائل البريد الإلكتروني المحظورة",
+    accessBlocked: "تم حظر الوصول لهذا المستخدم",
+    loginAttempts: "محاولات تسجيل الدخول",
+    recentAttempts: "آخر محاولات تسجيل الدخول",
+    noAttempts: "لا توجد محاولات تسجيل دخول مسגلة",
+    attemptDate: "تاريخ المحاولة",
+    device: "الجهاز/المتصفח",
+    unauthorized: "غير مصرح به"
   }
 };

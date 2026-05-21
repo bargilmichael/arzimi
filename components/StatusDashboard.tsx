@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { ProjectState, TaskStatus, Discipline, Unit } from '../types';
-import { STATUS_CONFIG } from '../constants';
+import { STATUS_CONFIG, PUBLIC_AREAS } from '../constants';
 import { Language, translations } from '../translations';
 import { getUnit, getUnitStatus } from '../services/dataService';
 
@@ -30,34 +30,36 @@ const StatusDashboard: React.FC<Props> = ({ state, lang, selectedPlotId, discipl
       ? state.buildings.filter(b => b.plotId === selectedPlotId)
       : state.buildings;
 
-    targetBuildings.forEach(building => {
-      for (let i = 1; i <= building.totalUnits; i++) {
-        const unit = getUnit(state, building.id, i);
-        
-        // Identify the LATEST status for each contractor/discipline
-        const latestStatuses = new Map<string, TaskStatus>();
-        
-        const logs = discipline === 'general' 
-          ? unit.history 
-          : unit.history.filter(h => h.discipline === discipline);
-          
-        // History is sorted newest first usually, but let's be sure
-        // Actually, updateUnit unshifts, so [0] is newest.
-        // We'll iterate and only keep the first one we see for each contractor
-        logs.forEach(log => {
-          if (!latestStatuses.has(log.contractor)) {
-            latestStatuses.set(log.contractor, log.status);
-          }
-        });
+    const buildingIds = new Set(targetBuildings.map(b => b.id));
 
-        // Unique statuses across all active tasks of this unit
-        const unitStatuses = new Set<TaskStatus>(latestStatuses.values());
-
-        unitStatuses.forEach(status => {
-          stats[status]++;
-        });
-      }
+    // Iterate over all units that have data
+    (Object.values(state.units) as Unit[]).forEach(unit => {
+      if (!buildingIds.has(unit.buildingId)) return;
+      countUnitStats(unit);
     });
+
+    function countUnitStats(unit: Unit) {
+      if (!unit || !unit.history || unit.history.length === 0) return;
+
+      // Identify the LATEST status for each contractor/discipline
+      const latestStatuses = new Map<string, TaskStatus>();
+      
+      const logs = (discipline === 'general' || discipline === 'all') 
+        ? unit.history 
+        : unit.history.filter(h => h.discipline === discipline);
+        
+      logs.forEach(log => {
+        const key = log.contractorId || log.discipline || 'unknown';
+        if (!latestStatuses.has(key)) {
+          latestStatuses.set(key, log.status);
+        }
+      });
+
+      // Statuses across all active tasks of this unit
+      latestStatuses.forEach(status => {
+        stats[status]++;
+      });
+    }
 
     return stats;
   };

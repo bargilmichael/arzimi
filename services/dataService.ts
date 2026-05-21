@@ -102,7 +102,7 @@ export const getUnit = (state: ProjectState, buildingId: string, unitId: string 
 export const getUnitStatus = (unit: Unit, discipline: Discipline): TaskStatus | null => {
   const hasHistory = unit.history.length > 0;
   
-  if (discipline === 'general') {
+  if (discipline === 'general' || discipline === 'all') {
     if (!hasHistory) return null;
 
     const statuses = Object.values(unit.statuses);

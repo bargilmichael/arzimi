@@ -15,7 +15,7 @@ import UserManagement from './components/UserManagement';
 import Login from './components/Login';
 import LanguageSelector from './components/LanguageSelector';
 import { auth, onAuthStateChanged, logout, FirebaseUser, db } from './firebase';
-import { doc, getDoc, setDoc, onSnapshot, collection, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot, collection, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Language, translations } from './translations';
 import { PUBLIC_AREAS, STATUS_CONFIG } from './constants';
 
@@ -36,6 +36,7 @@ const App: React.FC = () => {
   const [userRole, setUserRole] = useState<'admin' | 'contractor' | 'viewer'>('viewer');
   const [userDiscipline, setUserDiscipline] = useState<string>('all');
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
+  const [isBlocked, setIsBlocked] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [state, setState] = useState<ProjectState>(() => initializeData());
   const [disciplines, setDisciplines] = useState<DisciplineDefinition[]>([]);
@@ -44,6 +45,7 @@ const App: React.FC = () => {
   const [selectedUnitId, setSelectedUnitId] = useState<string | number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
+  const [showAllProcesses, setShowAllProcesses] = useState(false);
   const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes'>('units');
   
   const [lang, setLang] = useState<Language>(() => {
@@ -122,6 +124,15 @@ const App: React.FC = () => {
             
             if (emailSnap.exists() && !emailSnap.data().uid) {
               const preData = emailSnap.data();
+              
+              if (preData.blocked) {
+                setIsBlocked(true);
+                setIsAuthorized(false);
+                setUser(currentUser);
+                setIsAuthReady(true);
+                return;
+              }
+
               const finalRole = userEmail === ADMIN_EMAIL ? 'admin' : (preData.role || 'viewer');
               
               await setDoc(userRef, {
@@ -152,22 +163,90 @@ const App: React.FC = () => {
               setIsAuthorized(true);
             } else {
               setIsAuthorized(false);
+              // Log unauthorized attempt
+              try {
+                const attemptId = `${currentUser.uid}_${Date.now()}`;
+                await setDoc(doc(db, 'login_attempts', attemptId), {
+                  uid: currentUser.uid,
+                  email: userEmail,
+                  displayName: currentUser.displayName || '---',
+                  timestamp: serverTimestamp(),
+                  userAgent: navigator.userAgent,
+                  status: 'unauthorized'
+                });
+              } catch (e) {
+                console.error("Error logging unauthorized attempt:", e);
+              }
             }
           } else {
             const data = userSnap.data();
+            if (data.blocked) {
+              setIsBlocked(true);
+              setIsAuthorized(false);
+              setUser(currentUser);
+              setIsAuthReady(true);
+              
+              // Log blocked attempt
+              try {
+                const attemptId = `${currentUser.uid}_${Date.now()}`;
+                await setDoc(doc(db, 'login_attempts', attemptId), {
+                  uid: currentUser.uid,
+                  email: userEmail,
+                  displayName: currentUser.displayName || data.displayName || '---',
+                  timestamp: serverTimestamp(),
+                  userAgent: navigator.userAgent,
+                  status: 'blocked'
+                });
+              } catch (e) {
+                console.error("Error logging blocked attempt:", e);
+              }
+              return;
+            }
+            setIsBlocked(false);
             const role = userEmail === ADMIN_EMAIL ? 'admin' : data.role;
             setUserRole(role);
             setUserDiscipline(data.discipline || 'all');
             setIsAuthorized(true);
+            
+            // Log successful attempt (optional but good for tracking)
+            try {
+              const loginRef = doc(db, 'users', currentUser.uid);
+              await setDoc(loginRef, {
+                lastLogin: serverTimestamp(),
+                lastDevice: navigator.userAgent
+              }, { merge: true });
+            } catch (e) {}
           }
         } else if (currentUser && !currentUser.email) {
           // This should rarely happen with Google login, but for safety:
           setIsAuthorized(false);
+          try {
+            const attemptId = `${currentUser.uid}_${Date.now()}`;
+            await setDoc(doc(db, 'login_attempts', attemptId), {
+              uid: currentUser.uid,
+              timestamp: serverTimestamp(),
+              userAgent: navigator.userAgent,
+              status: 'no_email'
+            });
+          } catch (e) {}
         } else {
           setIsAuthorized(null);
         }
       } catch (error) {
         console.error("Auth error:", error);
+        // Log error attempt
+        if (currentUser) {
+           try {
+            const attemptId = `${currentUser.uid}_${Date.now()}`;
+            await setDoc(doc(db, 'login_attempts', attemptId), {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              timestamp: serverTimestamp(),
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          } catch (e) {}
+        }
         // Fallback to true if it's the admin, just in case Firestore is being flaky
         if (currentUser?.email?.toLowerCase() === ADMIN_EMAIL) {
           setUserRole('admin');
@@ -375,9 +454,9 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir={(lang === 'he' || lang === 'ar') ? 'rtl' : 'ltr'}>
         <div className="bg-white p-12 rounded-[3rem] shadow-2xl border border-red-100 max-w-md w-full">
           <div className="text-8xl mb-8 animate-bounce">🚫</div>
-          <h1 className="text-3xl font-black text-red-600 mb-4">{(t as any).unauthorizedTitle}</h1>
+          <h1 className="text-3xl font-black text-red-600 mb-4">{isBlocked ? (t as any).accessBlocked : (t as any).unauthorizedTitle}</h1>
           <p className="text-gray-500 font-bold mb-10 text-lg leading-relaxed">
-            {(t as any).notAuthorized}
+            {isBlocked ? (lang === 'he' ? 'חשבונך נחסם לגישה במערכת על ידי מנהל.' : 'Your account has been blocked by an administrator.') : (t as any).notAuthorized}
           </p>
           <div className="p-4 bg-gray-50 rounded-2xl mb-8 border border-gray-100">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">מחובר כיום:</p>
@@ -443,9 +522,12 @@ const App: React.FC = () => {
           <button onClick={() => setViewMode('contractors')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'contractors' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewContractors}</button>
           <button onClick={() => setViewMode('schedule')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'schedule' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewSchedule}</button>
           <button onClick={() => setViewMode('history')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'history' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>{t.viewHistory}</button>
-          <button onClick={() => setViewMode('processes')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'processes' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
+          <button 
+            onClick={() => setViewMode('processes')} 
+            className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'processes' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}
+          >
             {(t as any).viewProcesses}
-            {statusFilter && <span className="mr-2 w-2 h-2 rounded-full bg-yellow-400 inline-block animate-pulse"></span>}
+            {(statusFilter || viewMode === 'processes') && <span className="mr-2 w-2 h-2 rounded-full bg-blue-400 inline-block animate-pulse"></span>}
           </button>
           {userRole === 'admin' && (
             <button onClick={() => setViewMode('users')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'users' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -472,30 +554,38 @@ const App: React.FC = () => {
           />
         ) : viewMode === 'processes' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <section className="mt-4">
+            <div className="mt-4 flex justify-end px-4">
+              {selectedPlotId && (
+                <button 
+                  onClick={() => setShowAllProcesses(!showAllProcesses)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all border shadow-sm ${showAllProcesses ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-blue-600 border-blue-100 hover:bg-blue-50'}`}
+                >
+                  {showAllProcesses ? '✅' : '⬜'} {lang === 'he' ? 'צפה בכל המגרשים' : lang === 'ru' ? 'Смотреть все участки' : 'View All Plots'}
+                </button>
+              )}
+            </div>
+            <section className="mt-2">
               <StatusDashboard 
                 state={state} 
                 lang={lang} 
-                selectedPlotId={selectedPlotId} 
+                selectedPlotId={showAllProcesses ? null : selectedPlotId} 
                 discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
                 statusFilter={statusFilter}
                 onStatusClick={setStatusFilter}
               />
             </section>
 
-            {statusFilter && (
-              <FilteredUnitList 
-                state={state}
-                lang={lang}
-                selectedPlotId={selectedPlotId}
-                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'}
-                statusFilter={statusFilter}
-                onSelectUnit={(buildingId, unitId) => {
-                  handleSelectFromOtherView(buildingId, unitId);
-                  setViewMode('units');
-                }}
-              />
-            )}
+            <FilteredUnitList 
+              state={state}
+              lang={lang}
+              selectedPlotId={showAllProcesses ? null : selectedPlotId}
+              discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'}
+              statusFilter={statusFilter as any}
+              onSelectUnit={(buildingId, unitId) => {
+                handleSelectFromOtherView(buildingId, unitId);
+                setViewMode('units');
+              }}
+            />
             
             <section className="mt-8 px-4">
                <div className="flex items-center justify-between mb-4">

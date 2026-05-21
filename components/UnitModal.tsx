@@ -57,7 +57,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportTime, setReportTime] = useState(new Date().toTimeString().split(' ')[0].substring(0, 5));
-  const [status, setStatus] = useState<TaskStatus>(TaskStatus.NOT_STARTED);
+  const [status, setStatus] = useState<TaskStatus>(TaskStatus.IN_PROGRESS);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [reportEmail, setReportEmail] = useState('');
   
@@ -71,9 +71,9 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
   const t = translations[lang];
   const canEdit = userRole === 'admin' || userRole === 'contractor';
   const isAdmin = userRole === 'admin';
-  const isWorkManager = userRole === 'contractor' && userDiscipline === 'general';
+  const isWorkManager = userRole === 'contractor' && (userDiscipline === 'general' || userDiscipline === 'all');
   const isSupervisor = isAdmin || isWorkManager;
-  const isRestricted = userRole === 'contractor' && activeDiscipline !== 'all' && activeDiscipline !== 'general';
+  const isRestricted = userRole === 'contractor' && userDiscipline !== 'all' && userDiscipline !== 'general';
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -96,7 +96,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
 
   const handleStartWork = () => {
     setActiveTab('report');
-    setStatus(TaskStatus.NOT_STARTED);
+    setStatus(TaskStatus.IN_PROGRESS);
   };
 
   const handleDownloadPDF = async () => {
@@ -185,7 +185,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
       onSave(updates);
     }
 
-    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED); setReportEmail(''); 
+    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.IN_PROGRESS); setReportEmail(''); 
     setReportDate(new Date().toISOString().split('T')[0]);
     setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
     setActiveTab('history');
@@ -563,7 +563,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                     <button 
                       onClick={() => {
                         setEditingLogId(null);
-                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED);
+                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.IN_PROGRESS);
                         setReportDate(new Date().toISOString().split('T')[0]);
                         setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
                       }}
@@ -596,7 +596,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                         setReportDate(newDate);
                         const today = new Date().toISOString().split('T')[0];
                         if (newDate !== today) {
-                          setStatus(TaskStatus.NOT_STARTED);
+                          setStatus(TaskStatus.IN_PROGRESS);
                         }
                       }} 
                       className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none font-black shadow-sm text-lg" 
@@ -613,12 +613,11 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                   </div>
                   <div className="space-y-3">
                     <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.currentStatus}</label>
-                    <select 
-                      value={status} 
-                      onChange={e => setStatus(e.target.value as TaskStatus)} 
-                      disabled={userRole === 'contractor'}
-                      className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none bg-white font-black shadow-sm text-lg disabled:opacity-50"
-                    >
+                      <select 
+                        value={status} 
+                        onChange={e => setStatus(e.target.value as TaskStatus)} 
+                        className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none bg-white font-black shadow-sm text-lg"
+                      >
                       {Object.entries(STATUS_CONFIG).map(([s, cfg]) => <option key={s} value={s}>{(t as any)[cfg.labelKey]}</option>)}
                     </select>
                   </div>

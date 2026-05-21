@@ -26,6 +26,10 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
   const [viewingConfirmationId, setViewingConfirmationId] = useState<string | null>(null);
   const [editDescription, setEditDescription] = useState('');
   const [editStatus, setEditStatus] = useState<TaskStatus>(TaskStatus.NOT_STARTED);
+  const [editWorkerName, setEditWorkerName] = useState('');
+  const [editDisciplineId, setEditDisciplineId] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editTime, setEditTime] = useState('');
   
   const [confirmModal, setConfirmModal] = useState<{
     show: boolean;
@@ -45,11 +49,19 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
   const t = translations[lang];
 
   const handleEditSave = (unit: Unit, log: TaskLog) => {
+    const newTimestamp = new Date(`${editDate}T${editTime}`).getTime();
+    const selectedDisc = disciplines.find(d => d.id === editDisciplineId);
+    const contractorLabel = selectedDisc?.labels[lang] || selectedDisc?.labels.he || editDisciplineId;
+
     onUpdate({
       editLog: {
         ...log,
         description: editDescription,
-        status: editStatus
+        status: editStatus,
+        timestamp: newTimestamp,
+        workerName: editWorkerName,
+        discipline: editDisciplineId,
+        contractor: contractorLabel
       }
     }, unit);
     setEditingLogId(null);
@@ -74,6 +86,11 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
     setEditingLogId(log.id);
     setEditDescription(log.description);
     setEditStatus(log.status);
+    setEditWorkerName(log.workerName);
+    setEditDisciplineId(log.discipline);
+    const dateObj = new Date(log.timestamp);
+    setEditDate(dateObj.toISOString().split('T')[0]);
+    setEditTime(dateObj.toTimeString().split(' ')[0].substring(0, 5));
   };
 
   // Map building to plot for quick lookup
@@ -94,7 +111,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
         const matchesPlot = filterPlot === 'all' || plotId === filterPlot;
         const matchesBuilding = filterBuilding === 'all' || unit.buildingId === filterBuilding;
         const matchesContractor = filterContractor === 'all' || log.contractor === filterContractor;
-        const isSupervisor = userRole === 'admin' || userDiscipline === 'general';
+        const isSupervisor = userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all';
         const matchesDiscipline = userRole !== 'contractor' || userDiscipline === 'all' || isSupervisor || log.discipline === userDiscipline;
         
         const unitIdParts = unit.id.split('-');
@@ -138,7 +155,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                   🧹 {lang === 'he' ? 'מחק את כל המשימות שלי' : 'Delete My Tasks'}
                 </button>
               )}
-              {(userRole === 'admin' || userDiscipline === 'general') && onClearAll && filteredLogs.length > 0 && (
+              {(userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && onClearAll && filteredLogs.length > 0 && (
                 <button 
                   onClick={() => setConfirmModal({ show: true, type: 'clear-all' })}
                   className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
@@ -309,34 +326,85 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                   
                   {editingLogId === log.id ? (
                     <div className="space-y-2 mt-2" onClick={(e) => e.stopPropagation()}>
-                      <textarea 
-                        value={editDescription}
-                        onChange={(e) => setEditDescription(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                        rows={2}
-                      />
-                      <div className="flex gap-2">
-                        <select 
-                          value={editStatus}
-                          onChange={(e) => setEditStatus(e.target.value as TaskStatus)}
-                          className="text-xs border border-gray-200 rounded-lg p-1"
-                        >
-                          {Object.entries(STATUS_CONFIG).map(([status, config]) => (
-                            <option key={status} value={status}>{(t as any)[config.labelKey]}</option>
-                          ))}
-                        </select>
-                        <button 
-                          onClick={() => handleEditSave(unit, log)}
-                          className="bg-blue-600 text-white text-[10px] font-bold px-3 py-1 rounded-lg hover:bg-blue-700"
-                        >
-                          {(t as any).save}
-                        </button>
-                        <button 
-                          onClick={() => setEditingLogId(null)}
-                          className="bg-gray-100 text-gray-600 text-[10px] font-bold px-3 py-1 rounded-lg hover:bg-gray-200"
-                        >
-                          {(t as any).cancel}
-                        </button>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.workerName}</label>
+                          <input 
+                            type="text"
+                            value={editWorkerName}
+                            onChange={(e) => setEditWorkerName(e.target.value)}
+                            className="w-full text-xs border border-gray-200 rounded-lg p-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.disciplineLabel}</label>
+                          <select 
+                            value={editDisciplineId}
+                            onChange={(e) => setEditDisciplineId(e.target.value)}
+                            className="w-full text-xs border border-gray-200 rounded-lg p-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                          >
+                            {disciplines.map(d => (
+                              <option key={d.id} value={d.id}>{d.labels[lang] || d.labels.he}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.dateLabel}</label>
+                          <input 
+                            type="date"
+                            value={editDate}
+                            onChange={(e) => setEditDate(e.target.value)}
+                            className="w-full text-xs border border-gray-200 rounded-lg p-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.timeLabel}</label>
+                          <input 
+                            type="time"
+                            value={editTime}
+                            onChange={(e) => setEditTime(e.target.value)}
+                            className="w-full text-xs border border-gray-200 rounded-lg p-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.descriptionPlaceholder}</label>
+                        <textarea 
+                          value={editDescription}
+                          onChange={(e) => setEditDescription(e.target.value)}
+                          className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                          rows={2}
+                        />
+                      </div>
+                      <div className="flex gap-2 items-end">
+                        <div className="space-y-1 flex-1">
+                           <label className="text-[9px] font-black text-gray-400 uppercase tracking-widest">{t.currentStatus}</label>
+                           <select 
+                            value={editStatus}
+                            onChange={(e) => setEditStatus(e.target.value as TaskStatus)}
+                            className="w-full text-xs border border-gray-200 rounded-lg p-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                          >
+                            {Object.entries(STATUS_CONFIG).map(([status, config]) => (
+                              <option key={status} value={status}>{(t as any)[config.labelKey]}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleEditSave(unit, log)}
+                            className="bg-blue-600 text-white text-[10px] font-black px-4 py-2 rounded-lg hover:bg-blue-700 shadow-sm transition-all"
+                          >
+                            {(t as any).save}
+                          </button>
+                          <button 
+                            onClick={() => setEditingLogId(null)}
+                            className="bg-gray-100 text-gray-600 text-[10px] font-black px-4 py-2 rounded-lg hover:bg-gray-200 transition-all"
+                          >
+                            {(t as any).cancel}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -364,7 +432,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                             <span className="text-[10px] font-black hidden sm:inline uppercase">{(t as any).viewConfirmation || 'אישור'}</span>
                           </button>
                         )}
-                        {(userRole === 'admin' || userDiscipline === 'general') && (
+                        {(userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && (
                           <>
                             <button 
                               onClick={(e) => {

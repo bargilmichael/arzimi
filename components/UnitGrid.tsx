@@ -29,7 +29,7 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
           <h2 className="text-2xl font-black text-gray-800 flex items-center gap-3">
             <span className="bg-blue-50 p-2 rounded-xl">🏘️</span> {t.unitList}
           </h2>
-          {(userRole === 'admin' || userDiscipline === 'general') && (
+          {(userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && (
             <button 
               onClick={() => setIsBulkEditing(!isBulkEditing)}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition-all shadow-sm border ${isBulkEditing ? 'bg-blue-600 text-white border-blue-700' : 'bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100'}`}
@@ -102,7 +102,7 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
             const unitData = getUnit(state, buildingId, num);
             const unitStatuses = new Set<TaskStatus>();
             unitData.history.forEach(h => {
-              if (discipline === 'general' || h.discipline === discipline) {
+              if (discipline === 'general' || discipline === 'all' || h.discipline === discipline) {
                 unitStatuses.add(h.status);
               }
             });
