@@ -14,6 +14,7 @@ import ProjectHistoryView from './components/ProjectHistoryView';
 import UserManagement from './components/UserManagement';
 import Login from './components/Login';
 import LanguageSelector from './components/LanguageSelector';
+import ProjectSelector from './components/ProjectSelector';
 import { auth, onAuthStateChanged, logout, FirebaseUser, db } from './firebase';
 import { doc, getDoc, setDoc, onSnapshot, collection, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Language, translations } from './translations';
@@ -38,7 +39,10 @@ const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [isBlocked, setIsBlocked] = useState<boolean>(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  const [state, setState] = useState<ProjectState>(() => initializeData());
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
+    return localStorage.getItem('selected_project_id');
+  });
+  const [state, setState] = useState<ProjectState>(() => initializeData(selectedProjectId || undefined));
   const [disciplines, setDisciplines] = useState<DisciplineDefinition[]>([]);
   const [selectedPlotId, setSelectedPlotId] = useState<string | null>(null);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
@@ -53,53 +57,128 @@ const App: React.FC = () => {
   });
 
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [firestoreConnected, setFirestoreConnected] = useState<boolean>(true);
+  const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!user) return;
+    const handleOnline = () => {
+      setIsOnline(true);
+      setFirestoreConnected(true);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setFirestoreConnected(false);
+    };
 
-    console.log("Setting up Firestore listeners for user:", user.email);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  const handleReconnect = async () => {
+    setIsReconnecting(true);
+    try {
+      const { enableNetwork, getDocFromServer, doc } = await import('firebase/firestore');
+      await enableNetwork(db);
+      const healthRef = doc(db, '_internal_', 'healthcheck');
+      await getDocFromServer(healthRef).catch(() => {});
+      setFirestoreConnected(true);
+      setIsOnline(navigator.onLine);
+    } catch (e) {
+      console.warn("Manual reconnect check:", e);
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedProjectId) {
+      localStorage.setItem('selected_project_id', selectedProjectId);
+      setState(initializeData(selectedProjectId));
+    } else {
+      localStorage.removeItem('selected_project_id');
+      setState(initializeData());
+    }
+    // Deep reset of selections when project changes
+    setSelectedPlotId(null);
+    setSelectedBuildingId(null);
+    setSelectedUnitId(null);
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    if (!user || !selectedProjectId) return;
+
+    console.log("Setting up Firestore listeners for user:", user.email, "Project:", selectedProjectId);
 
     // Sync Disciplines
     const unsubDisc = onSnapshot(collection(db, 'disciplines'), (snapshot) => {
       const discData = snapshot.docs.map(doc => doc.data() as DisciplineDefinition);
       setDisciplines(discData);
+      setFirestoreConnected(true);
+    }, (error) => {
+      console.error("Firestore Disciplines onSnapshot error:", error);
+      if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('reach')) {
+        setFirestoreConnected(false);
+      }
     });
 
     const unsubUnits = onSnapshot(collection(db, 'units'), (snapshot) => {
       console.log(`Units onSnapshot fired: ${snapshot.size} docs`);
       const unitsData: Record<string, Unit> = {};
       snapshot.forEach(doc => {
-        unitsData[doc.id] = doc.data() as Unit;
+        const data = doc.data() as Unit;
+        // Migration/Preservation logic: If no projectId, it's Bnei Brak
+        const docProjectId = data.projectId || 'bnei-brak';
+        if (docProjectId === selectedProjectId) {
+          unitsData[doc.id] = { ...data, projectId: docProjectId };
+        }
       });
       
       setLastSync(new Date());
+      setFirestoreConnected(true);
       setState(prev => {
         const newUnits = { ...prev.units, ...unitsData };
         return { ...prev, units: newUnits };
       });
     }, (error) => {
       console.error("Firestore Units onSnapshot error:", error);
+      if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('reach')) {
+        setFirestoreConnected(false);
+      }
     });
 
     const unsubBuildings = onSnapshot(collection(db, 'buildings'), (snapshot) => {
       console.log(`Buildings onSnapshot fired: ${snapshot.size} docs`);
       const buildingsData: Building[] = [];
       snapshot.forEach(doc => {
-        buildingsData.push(doc.data() as Building);
+        const data = doc.data() as Building;
+        const docProjectId = data.projectId || 'bnei-brak';
+        if (docProjectId === selectedProjectId) {
+          buildingsData.push({ ...data, projectId: docProjectId });
+        }
       });
       
       setLastSync(new Date());
+      setFirestoreConnected(true);
       if (buildingsData.length > 0) {
         setState(prev => {
           const newBuildings = prev.buildings.map(b => {
              const found = buildingsData.find(fb => fb.id === b.id);
-             return found ? { ...b, ...found } : b;
+             return found ? { ...b, ...found, totalUnits: b.totalUnits } : b;
           });
           return { ...prev, buildings: newBuildings };
         });
       }
     }, (error) => {
       console.error("Firestore Buildings onSnapshot error:", error);
+      if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('reach')) {
+        setFirestoreConnected(false);
+      }
     });
 
     return () => {
@@ -107,7 +186,7 @@ const App: React.FC = () => {
       unsubUnits();
       unsubBuildings();
     };
-  }, [user]);
+  }, [user, selectedProjectId]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -437,6 +516,8 @@ const App: React.FC = () => {
   const isWorkManager = userRole === 'contractor' && userDiscipline === 'general';
   const isSupervisor = isAdmin || isWorkManager;
 
+  const activeProject = state.projects.find(p => p.id === selectedProjectId);
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -473,16 +554,50 @@ const App: React.FC = () => {
     );
   }
 
+  if (!selectedProjectId) {
+    return <ProjectSelector projects={state.projects} onSelect={setSelectedProjectId} lang={lang} />;
+  }
+
   return (
     <div className={`min-h-screen bg-slate-50 ${lang === 'ru' ? 'text-left' : 'text-right'}`} dir={(lang === 'he' || lang === 'ar') ? 'rtl' : 'ltr'}>
       <header className="sticky top-0 z-40 bg-white border-b border-gray-100 shadow-sm p-3">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-6 w-full md:w-auto">
-            <Logo />
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setSelectedProjectId(null)}
+                className="p-2 hover:bg-slate-100 rounded-xl transition-colors text-slate-400 hover:text-slate-900 group"
+                title={lang === 'he' ? 'חזור לבחירת פרויקט' : 'Back to projects'}
+              >
+                <span className="text-xl group-hover:-translate-x-1 inline-block transition-transform">{lang === 'he' ? '→' : '←'}</span>
+              </button>
+              <Logo />
+            </div>
             <div className="h-10 w-[1px] bg-gray-200 hidden md:block"></div>
-            <div className="flex-1">
-              <h1 className="text-lg font-black leading-none text-blue-900">{t.appName}</h1>
-              <p className="text-[9px] text-gray-400 mt-1 uppercase tracking-widest font-bold">{t.appSubName}</p>
+            <div className="flex-1 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+              <div>
+                <h1 className="text-lg font-black leading-none text-blue-900">{activeProject?.name || t.appName}</h1>
+                <p className="text-[9px] text-gray-400 mt-1 uppercase tracking-widest font-bold">{t.appSubName}</p>
+              </div>
+              
+              <div className="flex items-center">
+                {!isOnline || !firestoreConnected ? (
+                  <button 
+                    onClick={handleReconnect}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black tracking-wide hover:bg-amber-100 transition-all cursor-pointer animate-pulse"
+                    title={(t as any).offlineWarning || "Working offline - Click to reconnect"}
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span>{(t as any).connectionOffline}</span>
+                    <span className={`text-[9px] ${isReconnecting ? 'animate-spin' : ''}`}>🔄</span>
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-black tracking-wide select-none">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 cursor-pulse"></span>
+                    <span>{(t as any).connectionActive}</span>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <div className="hidden sm:flex flex-col items-end mr-2">

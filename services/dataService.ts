@@ -1,5 +1,5 @@
 
-import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, TenantInfo, Plot } from '../types';
+import { ProjectState, Building, Unit, TaskStatus, TaskLog, Discipline, TenantInfo, Plot, Project } from '../types';
 import { BUILDINGS_COUNT, UNITS_PER_BUILDING } from '../constants';
 
 import { db } from '../firebase';
@@ -46,39 +46,82 @@ export const saveBuildingToFirestore = async (building: Building) => {
   }
 };
 
-export const initializeData = (): ProjectState => {
-  const plotConfigs = [
-    { id: '800', name: 'מגרש 800', buildings: [1, 2, 3] },
-    { id: '801A', name: 'מגרש 801A', buildings: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
-    { id: '803A', name: 'מגרש 803A', buildings: [14, 15, 16, 17, 18, 19] },
-    { id: '806A', name: 'מגרש 806A', buildings: [20, 21, 22, 23, 24, 25, 26, 27] },
-    { id: '807', name: 'מגרש 807', buildings: [28, 29, 30, 31] },
-    { id: '808', name: 'מגרש 808', buildings: [1, 2, 3, 4, 5, 6, 7] },
-    { id: '810', name: 'מגרש 810', buildings: [8, 9, 10, 11] },
-    { id: '812', name: 'מגרש 812', buildings: [32, 33] },
-  ];
+export const PROJECTS: Project[] = [
+  {
+    id: 'bnei-brak',
+    name: 'בני ברק',
+    location: 'בני ברק',
+    plots: [
+      { id: '800', name: 'מגרש 800' },
+      { id: '801A', name: 'מגרש 801A' },
+      { id: '803A', name: 'מגרש 803A' },
+      { id: '806A', name: 'מגרש 806A' },
+      { id: '807', name: 'מגרש 807' },
+      { id: '808', name: 'מגרש 808' },
+      { id: '810', name: 'מגרש 810' },
+      { id: '812', name: 'מגרש 812' },
+    ],
+    buildingConfigs: [
+      { plotId: '800', buildings: [1, 2, 3] },
+      { plotId: '801A', buildings: [4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+      { plotId: '803A', buildings: [14, 15, 16, 17, 18, 19] },
+      { plotId: '806A', buildings: [20, 21, 22, 23, 24, 25, 26, 27] },
+      { plotId: '807', buildings: [28, 29, 30, 31] },
+      { plotId: '808', buildings: [1, 2, 3, 4, 5, 6, 7] },
+      { plotId: '810', buildings: [8, 9, 10, 11] },
+      { plotId: '812', buildings: [32, 33] },
+    ]
+  },
+  {
+    id: 'beer-yaakov',
+    name: 'באר יעקב תלמים',
+    location: 'באר יעקב',
+    plots: [
+      { id: 'T-1', name: 'תלמים 1' },
+      { id: 'T-2', name: 'תלמים 2' },
+    ],
+    buildingConfigs: [
+      { plotId: 'T-1', buildings: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24] },
+      { plotId: 'T-2', buildings: [1, 3, 5, 7] },
+    ]
+  }
+];
 
-  const plots: Plot[] = plotConfigs.map(p => ({ id: p.id, name: p.name }));
+export const initializeData = (projectId?: string): ProjectState => {
+  if (!projectId) {
+     return { projects: PROJECTS, plots: [], buildings: [], units: {} };
+  }
+
+  const project = PROJECTS.find(p => p.id === projectId) || PROJECTS[0];
   const buildings: Building[] = [];
 
-  plotConfigs.forEach(p => {
-    p.buildings.forEach(bId => {
+  project.buildingConfigs.forEach(config => {
+    config.buildings.forEach(bId => {
+      let totalUnits = UNITS_PER_BUILDING;
+      if (project.id === 'beer-yaakov') {
+        if (bId === 15) totalUnits = 51;
+        else if (bId === 16) totalUnits = 51;
+        else if (bId === 17) totalUnits = 70;
+        else if (bId === 19) totalUnits = 54;
+        else if (bId === 21) totalUnits = 70;
+        else if (bId === 22) totalUnits = 70;
+      }
       buildings.push({
-        id: `p-${p.id}-b-${bId}`,
+        id: `p-${config.plotId}-b-${bId}`,
         name: `בניין ${bId}`,
-        plotId: p.id,
-        totalUnits: UNITS_PER_BUILDING
+        plotId: config.plotId,
+        projectId: project.id,
+        totalUnits
       });
     });
   });
 
-  const initialState: ProjectState = {
-    plots,
+  return {
+    projects: PROJECTS,
+    plots: project.plots,
     buildings,
     units: {}
   };
-
-  return initialState;
 };
 
 export const saveData = (_state: ProjectState) => {
@@ -90,8 +133,12 @@ export const getUnit = (state: ProjectState, buildingId: string, unitId: string 
   const key = `${buildingId}-${unitId}`;
   if (state.units[key]) return state.units[key];
   
+  const building = state.buildings.find(b => b.id === buildingId);
+  const projectId = building?.projectId || 'bnei-brak';
+
   return {
     id: key,
+    projectId,
     buildingId,
     number: typeof unitId === 'number' ? unitId : 0,
     statuses: {},

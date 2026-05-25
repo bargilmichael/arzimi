@@ -6,10 +6,11 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "projectId": { "type": "string" },
         "name": { "type": "string" },
         "totalUnits": { "type": "number" }
       },
-      "required": ["id", "name", "totalUnits"]
+      "required": ["id", "projectId", "name", "totalUnits"]
     },
     "Unit": {
       "title": "Unit",
@@ -17,6 +18,7 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "projectId": { "type": "string" },
         "buildingId": { "type": "string" },
         "number": { "type": "number" },
         "statuses": {
@@ -27,7 +29,19 @@
           }
         }
       },
-      "required": ["id", "buildingId", "number", "statuses"]
+      "required": ["id", "projectId", "buildingId", "number", "statuses"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "Represents a construction project",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": "string" },
+        "imageUrl": { "type": "string" }
+      },
+      "required": ["id", "name"]
     },
     "TaskLog": {
       "title": "TaskLog",
@@ -75,6 +89,10 @@
     }
   },
   "firestore": {
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Collection of projects"
+    },
     "/buildings/{buildingId}": {
       "schema": "Building",
       "description": "Collection of buildings"

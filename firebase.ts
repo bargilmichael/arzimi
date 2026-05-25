@@ -22,7 +22,8 @@ export const auth = getAuth(app);
 // Use initializeFirestore with the specific database ID and long polling to bypass websocket issues
 // The 3rd argument is the database ID.
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true
+  experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true
 }, "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60");
 
 export const storage = getStorage(app);
@@ -37,15 +38,17 @@ async function testConnection() {
   try {
     const healthRef = doc(db, '_internal_', 'healthcheck');
     const promise = getDocFromServer(healthRef);
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timeout")), 10000));
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Connection timeout")), 8000));
     
     await Promise.race([promise, timeout]);
-    console.log("Firebase connection verified.");
+    console.log("Firestore connection check responded from server.");
   } catch (error: any) {
-    console.warn("Firestore connection check info:", error.message);
-    if (error.code === 'unavailable' || error.message?.includes('offline')) {
-       console.error("CRITICAL: Firebase is offline or unreachable. Check if the database 'ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60' exists and is active.");
+    // If it is a permission-denied error, it means we reached the server and queried it successfully!
+    if (error.code === 'permission-denied') {
+      console.log("Firestore connection verified (received secured policy response).");
+      return;
     }
+    console.warn("Firestore offline status/warn:", error.message);
   }
 }
 testConnection();

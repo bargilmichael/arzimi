@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { ProjectState, TaskLog, Unit, TaskStatus, DisciplineDefinition } from '../types';
 import { STATUS_CONFIG, CONTRACTORS, PUBLIC_AREAS, UNITS_PER_BUILDING } from '../constants';
 import { Language, translations } from '../translations';
+import ExpandableText from './ExpandableText';
 
 interface Props {
   state: ProjectState;
@@ -92,6 +93,10 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
     setEditDate(dateObj.toISOString().split('T')[0]);
     setEditTime(dateObj.toTimeString().split(' ')[0].substring(0, 5));
   };
+
+  const maxUnitsInProject = useMemo(() => {
+    return Math.max(...state.buildings.map(b => b.totalUnits || 50), UNITS_PER_BUILDING);
+  }, [state.buildings]);
 
   // Map building to plot for quick lookup
   const buildingToPlot = useMemo(() => {
@@ -235,7 +240,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             >
               <option value="all">{t.allUnits}</option>
               <optgroup label={t.apartment}>
-                {Array.from({ length: UNITS_PER_BUILDING }, (_, i) => i + 1).map(num => (
+                {Array.from({ length: maxUnitsInProject }, (_, i) => i + 1).map(num => (
                   <option key={num} value={num.toString()}>{t.apartment} {num}</option>
                 ))}
               </optgroup>
@@ -408,9 +413,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-gray-600 break-words line-clamp-2 md:line-clamp-2 leading-tight">
-                      {log.description}
-                    </p>
+                    <ExpandableText text={log.description} lang={lang} className="text-sm text-gray-600 leading-tight" />
                   )}
                 </div>
 

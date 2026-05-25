@@ -4,6 +4,7 @@ import { Unit, TaskStatus, Discipline, TaskLog, WorkConfirmation, ProjectState, 
 import { STATUS_CONFIG, PUBLIC_AREAS, CONTRACTORS } from '../constants';
 import { Language, translations } from '../translations';
 import WorkConfirmationModal from './WorkConfirmationModal';
+import ExpandableText from './ExpandableText';
 import { generateWorkConfirmationPDF } from '../services/pdfService';
 import { auth } from '../firebase';
 
@@ -395,7 +396,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                         <div className={`text-[10px] font-black px-3 py-1 rounded-full border-2 shadow-sm ${STATUS_CONFIG[task.status].color}`}>{(t as any)[STATUS_CONFIG[task.status].labelKey]}</div>
                       </div>
                       <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 shadow-inner mb-6">
-                        <p className="text-sm font-bold text-gray-700 leading-relaxed">{task.description}</p>
+                        <ExpandableText text={task.description} lang={lang} className="text-sm font-bold text-gray-700 leading-relaxed" defaultClamped={false} />
                         {task.images && task.images.length > 0 && (
                           <div className="grid grid-cols-3 gap-3 mt-4">
                             {task.images.map((img, idx) => img && (
@@ -484,7 +485,9 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                           <span className="text-[10px] text-gray-400 font-bold uppercase">{log.contractor}</span>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-100 break-words line-clamp-3">{log.description}</p>
+                      <div className="bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                        <ExpandableText text={log.description} lang={lang} className="text-xs text-gray-600 font-medium leading-relaxed" />
+                      </div>
                       {log.confirmationId && (
                         <button 
                           onClick={() => setViewingConfirmationId(log.confirmationId || null)}

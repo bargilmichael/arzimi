@@ -51,6 +51,7 @@ export interface WorkConfirmation {
 
 export interface Unit {
   id: string;
+  projectId: string;
   buildingId: string;
   number: number;
   tenantInfo?: TenantInfo;
@@ -62,6 +63,7 @@ export interface Unit {
 
 export interface Building {
   id: string;
+  projectId: string;
   name: string;
   plotId: string;
   totalUnits: number;
@@ -73,7 +75,17 @@ export interface Plot {
   name: string;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  location?: string;
+  imageUrl?: string;
+  plots: Plot[];
+  buildingConfigs: { plotId: string, buildings: number[] }[];
+}
+
 export interface ProjectState {
+  projects: Project[];
   plots: Plot[];
   buildings: Building[];
   units: Record<string, Unit>;

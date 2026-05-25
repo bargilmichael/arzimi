@@ -18,7 +18,9 @@ interface Props {
 }
 
 const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTenant, lang, discipline, userRole, userDiscipline, statusFilter, onStatusClick }) => {
-  const units = Array.from({ length: UNITS_PER_BUILDING }, (_, i) => i + 1);
+  const building = state.buildings.find(b => b.id === buildingId);
+  const totalUnits = building?.totalUnits || UNITS_PER_BUILDING;
+  const units = Array.from({ length: totalUnits }, (_, i) => i + 1);
   const t = translations[lang];
   const [isBulkEditing, setIsBulkEditing] = useState(false);
 

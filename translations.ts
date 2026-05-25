@@ -161,7 +161,14 @@ export const translations = {
     noAttempts: "אין ניסיונות התחברות מתועדים",
     attemptDate: "תאריך ניסיון",
     device: "מכשיר/דפדפן",
-    unauthorized: "לא מורשה"
+    unauthorized: "לא מורשה",
+    readMore: "קרא עוד ↓",
+    readLess: "קרא פחות ↑",
+    connectionActive: "קשר פעיל",
+    connectionOffline: "מצב לא מקוון - שמירה מקומית פעילה",
+    reconnectAction: "התחבר מחדש",
+    reconnecting: "מתחבר...",
+    offlineWarning: "המערכת פועלת במצב לא מקוון. כל השינויים נשמרים מקומית ויסונכרנו אוטומטית כשהחיבור יתחדש."
   },
   ru: {
     appName: "Отдел проверки Arazi HaNegev",
@@ -340,7 +347,14 @@ export const translations = {
     noAttempts: "Нет зафиксированных попыток входа",
     attemptDate: "Дата попытки",
     device: "Устройство/Браузер",
-    unauthorized: "Неавторизован"
+    unauthorized: "Неавторизован",
+    readMore: "Читать далее ↓",
+    readLess: "Свернуть ↑",
+    connectionActive: "Активное подключение",
+    connectionOffline: "Автономный режим - локальное сохранение активно",
+    reconnectAction: "Подключиться заново",
+    reconnecting: "Подключение...",
+    offlineWarning: "Система работает в автономном режиме. Все изменения сохраняются локально и автоматически синхронизируются при восстановлении связи."
   },
   ar: {
     appName: "قسم فحص أرازي النقب",
@@ -519,6 +533,13 @@ export const translations = {
     noAttempts: "لا توجد محاولات تسجيل دخول مسגلة",
     attemptDate: "تاريخ المحاولة",
     device: "الجهاز/المتصفח",
-    unauthorized: "غير مصرح به"
+    unauthorized: "غير مصرح به",
+    readMore: "اقرأ المزيد ↓",
+    readLess: "عرض أقل ↑",
+    connectionActive: "اتصال نشط",
+    connectionOffline: "وضع غير متصل بالشبكة - الحفظ المحلي نشط",
+    reconnectAction: "إعادة الاتصال",
+    reconnecting: "جاري الاتصال...",
+    offlineWarning: "يعمل النظام في وضع غير متصل بالشبكة. سيتم حفظ جميع التغييرات محلياً ومزامنتها تلقائياً عند استعادة الاتصال."
   }
 };

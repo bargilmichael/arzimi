@@ -17,20 +17,21 @@ interface Props {
 const BuildingSelector: React.FC<Props> = ({ buildings, selectedBuildingId, onSelect, state, lang, discipline }) => {
   const t = translations[lang];
 
-  const getCompletionStats = (buildingId: string) => {
+  const getCompletionStats = (b: Building) => {
     let completed = 0;
-    for (let i = 1; i <= UNITS_PER_BUILDING; i++) {
-      const unit = getUnit(state, buildingId, i);
+    const totalUnits = b.totalUnits || UNITS_PER_BUILDING;
+    for (let i = 1; i <= totalUnits; i++) {
+      const unit = getUnit(state, b.id, i);
       const status = getUnitStatus(unit, discipline);
       if (status === TaskStatus.DONE) completed++;
     }
-    return Math.round((completed / UNITS_PER_BUILDING) * 100);
+    return Math.round((completed / totalUnits) * 100);
   };
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 p-4">
       {buildings.map((b) => {
-        const progress = getCompletionStats(b.id);
+        const progress = getCompletionStats(b);
         const isActive = selectedBuildingId === b.id;
         const buildingName = lang === 'ru' ? b.name.replace('בניין', 'Здание') : lang === 'ar' ? b.name.replace('בניין', 'مبنى') : b.name;
         
