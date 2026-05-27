@@ -401,6 +401,10 @@ const App: React.FC = () => {
       language: 'ru' | 'ar'
     }
   }, unitOverride?: Unit) => {
+    if (userRole === 'viewer') {
+      console.warn("Viewer is not allowed to update units.");
+      return;
+    }
     const targetUnit = unitOverride || activeUnit;
     if (!targetUnit) return;
     const newState = updateUnit(state, targetUnit, {
@@ -445,6 +449,10 @@ const App: React.FC = () => {
   };
 
   const handleDeleteMyTasks = async () => {
+    if (userRole === 'viewer') {
+      console.warn("Viewer is not allowed to delete tasks.");
+      return;
+    }
     if (!user) return;
     const name = user.displayName || user.email?.split('@')[0];
     if (!name) return;

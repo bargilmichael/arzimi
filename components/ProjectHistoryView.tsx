@@ -152,7 +152,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             {t.fullHistoryTitle}
           </h2>
             <div className="flex gap-2">
-              {onDeleteMyTasks && filteredLogs.length > 0 && (
+              {userRole !== 'viewer' && onDeleteMyTasks && filteredLogs.length > 0 && (
                 <button 
                   onClick={() => setConfirmModal({ show: true, type: 'my-tasks' })}
                   className="bg-blue-50 text-blue-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-blue-100 transition-all border border-blue-100 flex items-center gap-2"
@@ -160,7 +160,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                   🧹 {lang === 'he' ? 'מחק את כל המשימות שלי' : 'Delete My Tasks'}
                 </button>
               )}
-              {(userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && onClearAll && filteredLogs.length > 0 && (
+              {userRole !== 'viewer' && (userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && onClearAll && filteredLogs.length > 0 && (
                 <button 
                   onClick={() => setConfirmModal({ show: true, type: 'clear-all' })}
                   className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
@@ -435,7 +435,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                             <span className="text-[10px] font-black hidden sm:inline uppercase">{(t as any).viewConfirmation || 'אישור'}</span>
                           </button>
                         )}
-                        {(userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && (
+                        {userRole !== 'viewer' && (userRole === 'admin' || userDiscipline === 'general' || userDiscipline === 'all') && (
                           <>
                             <button 
                               onClick={(e) => {

@@ -28,6 +28,9 @@ export const db = initializeFirestore(app, {
 
 export const storage = getStorage(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
 
 // Auth helpers
 export const loginWithGoogle = () => signInWithPopup(auth, googleProvider);

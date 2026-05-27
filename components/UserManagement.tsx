@@ -17,6 +17,7 @@ interface UserProfile {
 
 interface LoginAttempt {
   id: string;
+  uid?: string;
   email?: string;
   displayName?: string;
   timestamp: any;
@@ -58,6 +59,26 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
   const [discHe, setDiscHe] = useState('');
   const [discRu, setDiscRu] = useState('');
   const [discAr, setDiscAr] = useState('');
+
+  // Toast and Confirmation states
+  const [confirmModal, setConfirmModal] = useState<{
+    show: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(null);
+    }, 4500);
+  };
 
   const t = translations[lang];
 
@@ -103,7 +124,10 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
 
   const handleAddDiscipline = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!discId || !discHe) return alert('נא למלא מזהה ושם בעברית');
+    if (!discId || !discHe) {
+      showToast(lang === 'he' ? 'נא למלא מזהה ושם בעברית' : 'Please fill ID and Hebrew name', 'error');
+      return;
+    }
     const id = discId.trim().toLowerCase().replace(/\s+/g, '_');
     
     try {
@@ -114,16 +138,20 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
       });
       setDiscId(''); setDiscHe(''); setDiscRu(''); setDiscAr('');
       setIsAddingDiscipline(false);
+      showToast(lang === 'he' ? 'התחום נוסף בהצלחה!' : 'Discipline added successfully!');
     } catch (error) {
       console.error("Error adding discipline:", error);
+      showToast(lang === 'he' ? 'שגיאה בהוספת תחום' : 'Error adding discipline', 'error');
     }
   };
 
   const toggleDisciplineActive = async (id: string, current: boolean) => {
     try {
       await updateDoc(doc(db, 'disciplines', id), { isActive: !current });
+      showToast(lang === 'he' ? 'סטטוס תחום עודכן בהצלחה' : 'Discipline status updated');
     } catch (error) {
       console.error("Error updating discipline:", error);
+      showToast(lang === 'he' ? 'שגיאה בעדכון תחום' : 'Error updating discipline', 'error');
     }
   };
 
@@ -131,9 +159,10 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { role: newRole });
+      showToast(lang === 'he' ? 'תפקיד עודכן בהצלחה' : 'Role updated successfully');
     } catch (error) {
       console.error("Error updating role:", error);
-      alert(t.errorUpdatingRole);
+      showToast(t.errorUpdatingRole || 'Error updating role', 'error');
     }
   };
 
@@ -141,9 +170,10 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { discipline });
+      showToast(lang === 'he' ? 'תחום עודכן בהצלחה' : 'Discipline updated successfully');
     } catch (error) {
       console.error("Error updating discipline:", error);
-      alert(t.errorUpdatingRole);
+      showToast(t.errorUpdatingRole || 'Error updating discipline', 'error');
     }
   };
 
@@ -151,9 +181,14 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
     try {
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, { blocked: !currentStatus });
+      showToast(
+        !currentStatus 
+          ? (lang === 'he' ? 'המשתמש נחסם בהצלחה' : 'User blocked successfully') 
+          : (lang === 'he' ? 'החסימה בוטלה בהצלחה!' : 'User unblocked successfully!')
+      );
     } catch (error) {
       console.error("Error toggling block:", error);
-      alert(lang === 'he' ? 'שגיאה בעדכון חסימה' : 'Error updating block status');
+      showToast(lang === 'he' ? 'שגיאה בעדכון חסימה' : 'Error updating block status', 'error');
     }
   };
 
@@ -168,29 +203,72 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
         email: newEmail.trim().toLowerCase(),
         displayName: newName.trim() || null,
         role: newRole,
-        discipline: newRole === 'contractor' ? newDiscipline : 'all'
+        discipline: newRole === 'contractor' ? newDiscipline : 'all',
+        blocked: false
       });
       setNewEmail('');
       setNewName('');
       setNewRole('viewer');
       setNewDiscipline('all');
-      alert(t.userAdded);
+      showToast(t.userAdded || 'User added successfully');
     } catch (error) {
       console.error("Error adding user:", error);
-      alert(t.errorAddingUser);
+      showToast(t.errorAddingUser || 'Error adding user', 'error');
     }
   };
 
-  const handleDeleteUser = async (userId: string, email: string) => {
+  const handleDeleteUser = (userId: string, email: string) => {
     if (email === 'bargil.michael@gmail.com') return;
-    const confirmMsg = lang === 'he' ? `האם למחוק את המשתמש ${email}?` : lang === 'ru' ? `Удалить пользователя ${email}?` : `هل تريد حذف المستخدم ${email}؟`;
-    if (!window.confirm(confirmMsg)) return;
 
-    try {
-      await deleteDoc(doc(db, 'users', userId));
-    } catch (error) {
-      console.error("Error deleting user:", error);
-    }
+    setConfirmModal({
+      show: true,
+      title: lang === 'he' ? 'מחיקת משתמש' : 'Delete User',
+      message: lang === 'he' ? `האם למחוק את המשתמש ${email}?` : `Are you sure you want to delete user ${email}?`,
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'users', userId));
+          showToast(lang === 'he' ? 'המשתמש נמחק בהצלחה' : 'User deleted successfully');
+        } catch (error) {
+          console.error("Error deleting user:", error);
+          showToast(lang === 'he' ? 'שגיאה במחיקת המשתמש' : 'Error deleting user', 'error');
+        }
+      }
+    });
+  };
+
+  const handleApproveAttempt = (attempt: LoginAttempt) => {
+    if (!attempt.email) return;
+    const emailLower = attempt.email.trim().toLowerCase();
+
+    setConfirmModal({
+      show: true,
+      title: lang === 'he' ? 'אישור משתמש חדש' : 'Approve New User',
+      message: lang === 'he' 
+        ? `האם לאשר גישה למערכת לחשבון ${emailLower}?` 
+        : `Approve system access for account ${emailLower}?`,
+      onConfirm: async () => {
+        try {
+          const userId = attempt.uid || emailLower;
+          const userRef = doc(db, 'users', userId);
+          await setDoc(userRef, {
+            uid: attempt.uid || null,
+            email: emailLower,
+            displayName: attempt.displayName || emailLower.split('@')[0],
+            role: 'viewer',
+            discipline: 'all',
+            blocked: false
+          });
+          showToast(
+            lang === 'he' 
+              ? `אישור הגישה לחשבון ${emailLower} בוצע בהצלחה!` 
+              : `Approval of access for account ${emailLower} was completed successfully!`
+          );
+        } catch (error) {
+          console.error("Error approving attempt:", error);
+          showToast(lang === 'he' ? 'שגיאה באישור הגישה למשתמש' : 'Error approving user access', 'error');
+        }
+      }
+    });
   };
 
   if (loading) return (
@@ -450,34 +528,63 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
                     <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{t.userEmail}</th>
                     <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{(t as any).device}</th>
                     <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">סטטוס</th>
+                    <th className="py-3 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-left">{lang === 'he' ? 'פעולות' : 'Actions'}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {loginAttempts.map((attempt) => (
-                    <tr key={attempt.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-3 px-4 text-xs font-bold text-gray-500">
-                        {attempt.timestamp?.toDate ? attempt.timestamp.toDate().toLocaleString('he-IL') : '---'}
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex flex-col">
-                          <span className="font-black text-gray-700 text-sm">{attempt.email || '---'}</span>
-                          <span className="text-[10px] font-bold text-gray-400">{attempt.displayName}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-[10px] text-gray-400 max-w-[200px] truncate" title={attempt.userAgent}>
-                        {attempt.userAgent || '---'}
-                      </td>
-                      <td className="py-3 px-4">
-                         <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${
-                           attempt.status === 'unauthorized' ? 'bg-orange-100 text-orange-600' :
-                           attempt.status === 'blocked' ? 'bg-red-100 text-red-600' :
-                           'bg-gray-100 text-gray-600'
-                         }`}>
-                           {(t as any)[attempt.status] || attempt.status}
-                         </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {loginAttempts.map((attempt) => {
+                    const matchedUser = attempt.email ? users.find(u => u.email.toLowerCase() === attempt.email!.toLowerCase()) : null;
+                    const isAttemptRegistered = !!matchedUser;
+                    const isAttemptBlocked = !!matchedUser?.blocked;
+                    return (
+                      <tr key={attempt.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-4 text-xs font-bold text-gray-500">
+                          {attempt.timestamp?.toDate ? attempt.timestamp.toDate().toLocaleString('he-IL') : '---'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col">
+                            <span className="font-black text-gray-700 text-sm">{attempt.email || '---'}</span>
+                            <span className="text-[10px] font-bold text-gray-400">{attempt.displayName}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-[10px] text-gray-400 max-w-[200px] truncate" title={attempt.userAgent}>
+                          {attempt.userAgent || '---'}
+                        </td>
+                        <td className="py-3 px-4">
+                           <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase ${
+                             attempt.status === 'unauthorized' ? 'bg-orange-100 text-orange-600' :
+                             attempt.status === 'blocked' || isAttemptBlocked ? 'bg-red-100 text-red-600' :
+                             'bg-gray-100 text-gray-600'
+                           }`}>
+                             {isAttemptBlocked ? (lang === 'he' ? 'חסום' : 'Blocked') : ((t as any)[attempt.status] || attempt.status)}
+                           </span>
+                        </td>
+                        <td className="py-3 px-4 text-left">
+                          {attempt.email && isAttemptBlocked && (
+                            <button
+                              onClick={() => handleToggleBlock(matchedUser.id, true)}
+                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all shadow-md cursor-pointer animate-pulse"
+                            >
+                              🔓 {lang === 'he' ? 'אשר גישה / בטל חסימה' : 'Approve Access / Unblock'}
+                            </button>
+                          )}
+                          {attempt.email && !isAttemptRegistered && (
+                            <button
+                              onClick={() => handleApproveAttempt(attempt)}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-xl text-[10px] font-black uppercase transition-all shadow-md cursor-pointer animate-pulse"
+                            >
+                              🔓 {lang === 'he' ? 'אשר גישה' : 'Approve Access'}
+                            </button>
+                          )}
+                          {isAttemptRegistered && !isAttemptBlocked && (
+                            <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-100 uppercase select-none">
+                              ✓ {lang === 'he' ? 'מאושר' : 'Approved'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -490,6 +597,47 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
           </p>
         </div>
       </div>
+
+      {/* Custom Confirmation Modal */}
+      {confirmModal && confirmModal.show && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" dir={lang === 'he' || lang === 'ar' ? 'rtl' : 'ltr'}>
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 duration-200 text-center">
+            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mx-auto mb-4 text-xl">
+              ❓
+            </div>
+            <h3 className="text-lg font-black text-slate-800 mb-2">{confirmModal.title}</h3>
+            <p className="text-sm text-slate-500 mb-6 font-bold leading-relaxed">{confirmModal.message}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-xs transition-all cursor-pointer"
+              >
+                {lang === 'he' ? 'ביטול' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const onConfirmFn = confirmModal.onConfirm;
+                  setConfirmModal(null);
+                  await onConfirmFn();
+                }}
+                className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs transition-all shadow-md cursor-pointer"
+              >
+                {lang === 'he' ? 'אשר' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Toast Notification */}
+      {toast && (
+        <div className="fixed bottom-6 right-6 z-[999] p-4 rounded-2xl shadow-2xl border flex items-center gap-3 transition-all duration-300 animate-in fade-in slide-in-from-bottom-5 font-bold text-sm bg-slate-900 text-white border-slate-700">
+          <span>{toast.type === 'success' ? '✅' : toast.type === 'error' ? '⚠️' : 'ℹ️'}</span>
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 };
