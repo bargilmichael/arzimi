@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc, setDoc, deleteDoc, query, getDocs } from 'firebase/firestore';
 import { Language, translations } from '../translations';
 import { DisciplineDefinition } from '../types';
+import { TenantImporter } from './TenantImporter';
 
 interface UserProfile {
   id: string;
@@ -396,6 +397,8 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
           </button>
         </form>
       </div>
+
+      <TenantImporter lang={lang} />
 
       <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">

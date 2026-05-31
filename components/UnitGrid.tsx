@@ -4,6 +4,7 @@ import { ProjectState, TaskStatus, Discipline } from '../types';
 import { STATUS_CONFIG, UNITS_PER_BUILDING } from '../constants';
 import { getUnit, getUnitStatus } from '../services/dataService';
 import { Language, translations } from '../translations';
+import { Phone } from 'lucide-react';
 
 interface Props {
   buildingId: string;
@@ -78,13 +79,24 @@ const UnitGrid: React.FC<Props> = ({ buildingId, state, onSelectUnit, onUpdateTe
                     onBlur={(e) => onUpdateTenant?.(num, e.target.value, unitData.tenantInfo?.phone || '')}
                     className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-blue-500"
                   />
-                  <input 
-                    type="text"
-                    defaultValue={unitData.tenantInfo?.phone || ''}
-                    placeholder={t.tenantPhoneField}
-                    onBlur={(e) => onUpdateTenant?.(num, unitData.tenantInfo?.name || '', e.target.value)}
-                    className="bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-blue-500"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="text"
+                      defaultValue={unitData.tenantInfo?.phone || ''}
+                      placeholder={t.tenantPhoneField}
+                      onBlur={(e) => onUpdateTenant?.(num, unitData.tenantInfo?.name || '', e.target.value)}
+                      className="flex-1 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold outline-none focus:border-blue-500 min-w-0"
+                    />
+                    {unitData.tenantInfo?.phone && (
+                      <a
+                        href={`tel:${unitData.tenantInfo.phone}`}
+                        className="bg-green-500 hover:bg-green-600 text-white p-2.5 rounded-xl transition-all flex items-center justify-center shadow-sm shrink-0 active:scale-95"
+                        title={lang === 'he' ? 'חיוג לדייר' : 'Call tenant'}
+                      >
+                        <Phone className="w-4 h-4" />
+                      </a>
+                    )}
+                  </div>
                 </div>
               );
             })}

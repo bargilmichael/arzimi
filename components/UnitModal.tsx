@@ -7,6 +7,7 @@ import WorkConfirmationModal from './WorkConfirmationModal';
 import ExpandableText from './ExpandableText';
 import { generateWorkConfirmationPDF } from '../services/pdfService';
 import { auth } from '../firebase';
+import { Phone } from 'lucide-react';
 
 interface Props {
   unit: Unit;
@@ -275,8 +276,18 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                      </div>
                    ) : (
                      <div className="flex items-center gap-2">
-                       <span className="text-[11px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                       <span className="text-[11px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md flex items-center gap-1">
                          👤 {unit.tenantInfo?.name || t.tenantLabel} {unit.tenantInfo?.phone && `(${unit.tenantInfo.phone})`}
+                          {unit.tenantInfo?.phone && (
+                            <a
+                              href={`tel:${unit.tenantInfo.phone}`}
+                              className="bg-green-500 hover:bg-green-600 text-white p-0.5 rounded-full transition-all flex items-center justify-center shadow-sm ml-1 inline-block"
+                              title={lang === 'he' ? 'חיוג לדייר' : 'Call tenant'}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Phone className="w-2.5 h-2.5 inline" />
+                            </a>
+                          )}
                        </span>
                        {isSupervisor && (
                          <button onClick={() => setIsEditingTenant(true)} className="text-[10px] text-gray-400 hover:text-blue-500 transition-colors">✏️</button>
@@ -542,7 +553,19 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                     <div className="flex justify-between items-center">
                       <div className="space-y-1">
                         <div className="text-xl font-black text-blue-900">{unit.tenantInfo?.name || (lang === 'he' ? 'אין שם דייר' : 'Нет имени')}</div>
-                        <div className="text-sm font-bold text-gray-400">{unit.tenantInfo?.phone || (lang === 'he' ? 'אין טלפון' : 'Нет телефона')}</div>
+                        <div className="text-sm font-bold text-gray-400 flex items-center gap-2">
+                          <span>{unit.tenantInfo?.phone || (lang === 'he' ? 'אין טלפון' : 'Нет телефона')}</span>
+                          {unit.tenantInfo?.phone && (
+                            <a
+                              href={`tel:${unit.tenantInfo.phone}`}
+                              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500 hover:bg-green-600 text-white text-xs font-black transition-all shadow-sm"
+                              title={lang === 'he' ? 'חיוג לדייר' : 'Call tenant'}
+                            >
+                              <Phone className="w-3.5 h-3.5" />
+                              <span>{lang === 'he' ? 'חיוג' : 'Call'}</span>
+                            </a>
+                          )}
+                        </div>
                       </div>
                       {isSupervisor && (
                         <button 
