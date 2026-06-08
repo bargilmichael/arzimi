@@ -29,6 +29,7 @@ interface LoginAttempt {
 
 interface Props {
   lang: Language;
+  projectId: string;
 }
 
 const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
@@ -40,9 +41,10 @@ const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
   { id: 'emperion', labels: { he: 'אמפריון (משאבות)', ru: 'Emperion (Насосы)', ar: 'إمبيريون (مضخات)' }, isActive: true },
   { id: 'workers', labels: { he: 'פועל (שלד וגמר)', ru: 'Рабочий', ar: 'عامل (بناء وتشطيب)' }, isActive: true },
   { id: 'electrician', labels: { he: 'חשמלאי (חשמל)', ru: 'Электрик', ar: 'كهربائي (كهرباء)' }, isActive: true },
+  { id: 'gas_contractor', labels: { he: 'קבלן גז', ru: 'Подрядчик по газу', ar: 'مقاول غاز' }, isActive: true },
 ];
 
-const UserManagement: React.FC<Props> = ({ lang }) => {
+const UserManagement: React.FC<Props> = ({ lang, projectId }) => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [disciplines, setDisciplines] = useState<DisciplineDefinition[]>([]);
   const [loginAttempts, setLoginAttempts] = useState<LoginAttempt[]>([]);
@@ -107,6 +109,12 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
       } else {
         const discData = snapshot.docs.map(doc => doc.data() as DisciplineDefinition);
         setDisciplines(discData);
+        // Automatically insert any missing default disciplines
+        for (const d of DEFAULT_DISCIPLINES) {
+          if (!discData.some(existing => existing.id === d.id)) {
+            await setDoc(doc(db, 'disciplines', d.id), d);
+          }
+        }
       }
     });
 
@@ -398,7 +406,7 @@ const UserManagement: React.FC<Props> = ({ lang }) => {
         </form>
       </div>
 
-      <TenantImporter lang={lang} />
+      <TenantImporter lang={lang} projectId={projectId} />
 
       <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">

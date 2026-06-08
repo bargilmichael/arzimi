@@ -4,7 +4,8 @@ export enum TaskStatus {
   IN_PROGRESS = 'IN_PROGRESS',
   DONE = 'DONE',
   NEEDS_FOLLOWUP = 'NEEDS_FOLLOWUP',
-  BLOCKED = 'BLOCKED'
+  BLOCKED = 'BLOCKED',
+  COORDINATION_REQUIRED = 'COORDINATION_REQUIRED'
 }
 
 export type Discipline = string;

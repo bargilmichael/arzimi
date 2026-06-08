@@ -4,6 +4,7 @@ import { Language, translations } from '../translations';
 import { translateToHebrew } from '../services/aiService';
 import { storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { DisciplineDefinition } from '../types';
 
 // Helper to convert dataURL to Blob
 const dataURLtoBlob = (dataurl: string) => {
@@ -21,6 +22,7 @@ const dataURLtoBlob = (dataurl: string) => {
 interface Props {
   lang: Language;
   unitId: string;
+  disciplines: DisciplineDefinition[];
   onClose: () => void;
   onConfirm: (data: {
     signerName: string;
@@ -29,15 +31,17 @@ interface Props {
     translatedDescription: string;
     attachmentUrl: string;
     language: 'ru' | 'ar';
+    followupDisciplineId?: string;
   }) => void;
 }
 
-const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfirm }) => {
+const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, disciplines, onClose, onConfirm }) => {
   const t = translations[lang] as any;
   const [signerName, setSignerName] = useState('');
   const [tenantEmail, setTenantEmail] = useState('');
   const [description, setDescription] = useState('');
   const [translatedDescription, setTranslatedDescription] = useState('');
+  const [followupDisciplineId, setFollowupDisciplineId] = useState<string>('none');
   const [isTranslating, setIsTranslating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [workLang, setWorkLang] = useState<'ru' | 'ar'>(lang === 'ar' ? 'ar' : 'ru');
@@ -86,7 +90,8 @@ const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfi
         originalDescription: description,
         translatedDescription: translatedDescription || description,
         attachmentUrl,
-        language: workLang
+        language: workLang,
+        followupDisciplineId: followupDisciplineId !== 'none' ? followupDisciplineId : undefined
       });
     } catch (error: any) {
       console.error("Error saving work confirmation:", error);
@@ -139,6 +144,28 @@ const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, onClose, onConfi
               placeholder={t.tenantEmailPlaceholder}
               className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none font-bold bg-slate-50/50"
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">{t.followupProfessionRequired || "נדרש בעל מקצוע המשך?"}</label>
+            <div className="relative">
+              <select 
+                value={followupDisciplineId}
+                onChange={e => setFollowupDisciplineId(e.target.value)}
+                className="w-full px-6 py-4 rounded-2xl border-2 border-slate-100 focus:border-blue-500 outline-none font-bold bg-slate-50/50 appearance-none cursor-pointer"
+              >
+                <option value="none">{t.none || "ללא"}</option>
+                {disciplines && disciplines.map(d => {
+                  const label = d.labels[lang] || d.labels.he || d.id;
+                  return (
+                    <option key={d.id} value={d.id}>{label}</option>
+                  );
+                })}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-gray-500">
+                ▼
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">

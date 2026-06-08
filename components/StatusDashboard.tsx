@@ -24,6 +24,7 @@ const StatusDashboard: React.FC<Props> = ({ state, lang, selectedPlotId, discipl
       [TaskStatus.DONE]: 0,
       [TaskStatus.NEEDS_FOLLOWUP]: 0,
       [TaskStatus.BLOCKED]: 0,
+      [TaskStatus.COORDINATION_REQUIRED]: 0,
     };
 
     const targetBuildings = selectedPlotId 
@@ -67,10 +68,10 @@ const StatusDashboard: React.FC<Props> = ({ state, lang, selectedPlotId, discipl
   const stats = getStats();
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 p-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 p-4">
       {Object.entries(STATUS_CONFIG).map(([status, config]) => {
         const isActive = statusFilter === status;
-        const count = stats[status as TaskStatus];
+        const count = stats[status as TaskStatus] || 0;
         
         return (
           <button
@@ -81,7 +82,7 @@ const StatusDashboard: React.FC<Props> = ({ state, lang, selectedPlotId, discipl
                 ? config.color + ' border-current scale-102 z-10 shadow-md transform'
                 : 'bg-white border-gray-100 hover:border-gray-200 text-gray-700'
             }`}
-            style={isActive ? { backgroundColor: config.color.includes('green') ? '#22c55e' : config.color.includes('yellow') ? '#eab308' : config.color.includes('red') ? '#ef4444' : config.color.includes('blue') ? '#3b82f6' : '#64748b', borderColor: 'transparent', color: 'white' } : {}}
+            style={isActive ? { backgroundColor: config.color.includes('green') ? '#22c55e' : config.color.includes('yellow') ? '#eab308' : config.color.includes('red') ? '#ef4444' : config.color.includes('blue') ? '#3b82f6' : config.color.includes('indigo') ? '#6366f1' : '#64748b', borderColor: 'transparent', color: 'white' } : {}}
           >
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xl">{config.icon}</span>

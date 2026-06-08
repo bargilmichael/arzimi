@@ -26,6 +26,11 @@ export const STATUS_CONFIG: Record<TaskStatus, { labelKey: string; color: string
     labelKey: 'blocked',
     color: 'bg-red-100 text-red-700 border-red-200',
     icon: '🔴'
+  },
+  [TaskStatus.COORDINATION_REQUIRED]: {
+    labelKey: 'needsCoordination',
+    color: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+    icon: '🟣'
   }
 };
 
@@ -49,5 +54,6 @@ export const CONTRACTORS = [
   { id: 'telefire', labelKey: 'contractor_telefire', icon: '🔥' },
   { id: 'emperion', labelKey: 'contractor_emperion', icon: '⚙️' },
   { id: 'itumit', labelKey: 'contractor_itumit', icon: '💧' },
-  { id: 'electrician', labelKey: 'contractor_electrician', icon: '⚡' }
+  { id: 'electrician', labelKey: 'contractor_electrician', icon: '⚡' },
+  { id: 'gas_contractor', labelKey: 'contractor_gas', icon: '⛽' }
 ];

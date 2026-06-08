@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { TENANT_IMPORT_DATA } from '../services/tenantImportData';
+import { TENANT_IMPORT_DATA, getTenantImportByProject } from '../services/tenantImportData';
 import { Language } from '../translations';
 import { Unit } from '../types';
 
 interface Props {
   lang: Language;
+  projectId: string;
 }
 
 const cleanObject = (obj: any): any => {
@@ -25,14 +26,51 @@ const cleanObject = (obj: any): any => {
   return obj;
 };
 
-const getBuildingIdFromNum = (bId: number): string | null => {
+const getBuildingIdFromNumAndProject = (bId: number, projectId: string, lineText: string = '', forcedPlotId?: string): string | null => {
+  if (forcedPlotId && forcedPlotId !== 'auto') {
+    return `p-${forcedPlotId}-b-${bId}`;
+  }
+
+  if (projectId === 'beer-yaakov') {
+    // For Be'er Ya'akov, check if the line specifies plot T-2 or תלמים 2. Otherwise default to T-1.
+    // T-2 has buildings 1, 3, 5, 7.
+    const isPlot2 = /t-?2|2-?t|תלמים\s*2|2\s*םימלת|2\s*מילת/i.test(lineText);
+    const validT2Buildings = [1, 3, 5, 7];
+    if (isPlot2 && validT2Buildings.includes(bId)) {
+      return `p-T-2-b-${bId}`;
+    }
+    if (bId >= 1 && bId <= 24) {
+      return `p-T-1-b-${bId}`;
+    }
+    return null;
+  }
+  
+  // Default Bnei Brak plots mapping
+  const lowerLine = lineText.toLowerCase();
+  
+  if (lowerLine.includes('808') && bId >= 1 && bId <= 7) return `p-808-b-${bId}`;
+  if (lowerLine.includes('810') && bId >= 8 && bId <= 11) return `p-810-b-${bId}`;
+  if (lowerLine.includes('800') && bId >= 1 && bId <= 3) return `p-800-b-${bId}`;
+  if (lowerLine.includes('801a') && bId >= 4 && bId <= 13) return `p-801A-b-${bId}`;
+  if (lowerLine.includes('803a') && bId >= 14 && bId <= 19) return `p-803A-b-${bId}`;
+  if (lowerLine.includes('806a') && bId >= 20 && bId <= 27) return `p-806A-b-${bId}`;
+  if (lowerLine.includes('807') && bId >= 28 && bId <= 31) return `p-807-b-${bId}`;
+  if (lowerLine.includes('812') && bId >= 32 && bId <= 33) return `p-812-b-${bId}`;
+
+  // Fallback defaults for Bnei Brak
   if (bId >= 1 && bId <= 3) return `p-800-b-${bId}`;
   if (bId >= 4 && bId <= 13) return `p-801A-b-${bId}`;
   if (bId >= 14 && bId <= 19) return `p-803A-b-${bId}`;
   if (bId >= 20 && bId <= 27) return `p-806A-b-${bId}`;
   if (bId >= 28 && bId <= 31) return `p-807-b-${bId}`;
   if (bId >= 32 && bId <= 33) return `p-812-b-${bId}`;
+  
   return null;
+};
+
+// Legacy fallback for compatibility
+const getBuildingIdFromNum = (bId: number): string | null => {
+  return getBuildingIdFromNumAndProject(bId, 'bnei-brak');
 };
 
 const standardizePhone = (phone: string): string => {
@@ -71,9 +109,10 @@ interface ParsedRow {
   name2: string;
   originalText: string;
   unitKey: string;
+  buildingId: string;
 }
 
-const parsePastedText = (text: string, shouldReverse: boolean = true): ParsedRow[] => {
+const parsePastedText = (text: string, projectId: string, shouldReverse: boolean = true, forcedPlotId?: string): ParsedRow[] => {
   const lines = text.split('\n');
   const results: ParsedRow[] = [];
 
@@ -145,7 +184,7 @@ const parsePastedText = (text: string, shouldReverse: boolean = true): ParsedRow
 
     if (buildingNum === null || aptNum === null) continue;
 
-    const buildingId = getBuildingIdFromNum(buildingNum);
+    const buildingId = getBuildingIdFromNumAndProject(buildingNum, projectId, rawLine, forcedPlotId);
     if (!buildingId) continue;
 
     // Now extract names. Clean extra numbers and meta words.
@@ -193,7 +232,8 @@ const parsePastedText = (text: string, shouldReverse: boolean = true): ParsedRow
       name1,
       name2,
       originalText: rawLine,
-      unitKey: `${buildingId}-${aptNum}`
+      unitKey: `${buildingId}-${aptNum}`,
+      buildingId
     });
   }
 
@@ -206,9 +246,10 @@ interface ParsedPhoneRow {
   phone: string;
   originalText: string;
   unitKey: string;
+  buildingId: string;
 }
 
-const parsePastedPhoneText = (text: string): ParsedPhoneRow[] => {
+const parsePastedPhoneText = (text: string, projectId: string, forcedPlotId?: string): ParsedPhoneRow[] => {
   const lines = text.split('\n');
   const results: ParsedPhoneRow[] = [];
 
@@ -245,7 +286,6 @@ const parsePastedPhoneText = (text: string): ParsedPhoneRow[] => {
 
   const extractPhoneFromLine = (line: string): string | null => {
     // Try to find any sequence representing an Israeli phone number
-    // We can search for 05 or 5 followed by other digits (and possibly space or dash)
     const matchDirect = line.match(/(?:05\d|5\d)[\d\s-]{7,9}/);
     if (matchDirect) {
       const cleaned = cleanPhone(matchDirect[0]);
@@ -336,7 +376,7 @@ const parsePastedPhoneText = (text: string): ParsedPhoneRow[] => {
 
     if (buildingNum === null || aptNum === null) continue;
 
-    const buildingId = getBuildingIdFromNum(buildingNum);
+    const buildingId = getBuildingIdFromNumAndProject(buildingNum, projectId, rawLine, forcedPlotId);
     if (!buildingId) continue;
 
     const phone = extractPhoneFromLine(line);
@@ -347,14 +387,53 @@ const parsePastedPhoneText = (text: string): ParsedPhoneRow[] => {
       aptNum,
       phone,
       originalText: rawLine,
-      unitKey: `${buildingId}-${aptNum}`
+      unitKey: `${buildingId}-${aptNum}`,
+      buildingId
     });
   }
 
   return results;
 };
 
-export const TenantImporter: React.FC<Props> = ({ lang }) => {
+const getPlotsForProject = (projectId: string) => {
+  if (projectId === 'beer-yaakov') {
+    return [
+      { id: 'T-1', name: { he: 'תלמים 1', en: 'Talmim 1' } },
+      { id: 'T-2', name: { he: 'תלמים 2', en: 'Talmim 2' } }
+    ];
+  }
+  return [
+    { id: '800', name: { he: 'מגרש 800', en: 'Plot 800' } },
+    { id: '801A', name: { he: 'מגרש 801א', en: 'Plot 801A' } },
+    { id: '803A', name: { he: 'מגרש 803א', en: 'Plot 803A' } },
+    { id: '806A', name: { he: 'מגרש 806א', en: 'Plot 806A' } },
+    { id: '807', name: { he: 'מגרש 807', en: 'Plot 807' } },
+    { id: '808', name: { he: 'מגרש 808', en: 'Plot 808' } },
+    { id: '810', name: { he: 'מגרש 810', en: 'Plot 810' } },
+    { id: '812', name: { he: 'מגרש 812', en: 'Plot 812' } }
+  ];
+};
+
+const loadPdfWorker = async () => {
+  if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
+  
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js';
+  document.head.appendChild(script);
+  
+  await new Promise((resolve, reject) => {
+    script.onload = resolve;
+    script.onerror = reject;
+  });
+  
+  const pdfjsLib = (window as any).pdfjsLib;
+  if (pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+  }
+  return pdfjsLib;
+};
+
+export const TenantImporter: React.FC<Props> = ({ lang, projectId }) => {
   const [activeTab, setActiveTab] = useState<'phones' | 'names'>('phones');
   
   // Phone importing states
@@ -369,6 +448,7 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
   const [isSavingPhones, setIsSavingPhones] = useState(false);
   const [phonesSuccessMessage, setPhonesSuccessMessage] = useState<string | null>(null);
   const [phonesErrorMessage, setPhonesErrorMessage] = useState<string | null>(null);
+  const [pastedPhonesPlotId, setPastedPhonesPlotId] = useState<string>('auto');
 
   // Name importing/reversing states
   const [pastedNamesText, setPastedNamesText] = useState('');
@@ -376,25 +456,28 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
   const [namesSuccessMessage, setNamesSuccessMessage] = useState<string | null>(null);
   const [namesErrorMessage, setNamesErrorMessage] = useState<string | null>(null);
   const [shouldReverseHebrew, setShouldReverseHebrew] = useState<boolean>(true);
+  const [pastedNamesPlotId, setPastedNamesPlotId] = useState<string>('auto');
 
-  // New states for custom file uploads (drag-and-drop & manual selection)
+  // New states for custom file uploads (drag-and-drop & manual selection & direct PDF parsing)
   const [uploadedFileText, setUploadedFileText] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileSuccessMessage, setFileSuccessMessage] = useState<string | null>(null);
   const [fileErrorMessage, setFileErrorMessage] = useState<string | null>(null);
   const [isSavingUploadedFile, setIsSavingUploadedFile] = useState(false);
+  const [uploadedFilePlotId, setUploadedFilePlotId] = useState<string>('auto');
+  const [isReadingPdf, setIsReadingPdf] = useState(false);
 
   // Parse uploaded file texts dynamically
   const parsedUploadedPhonesList = useMemo(() => {
     if (!uploadedFileText) return [];
-    return parsePastedPhoneText(uploadedFileText);
-  }, [uploadedFileText]);
+    return parsePastedPhoneText(uploadedFileText, projectId, uploadedFilePlotId);
+  }, [uploadedFileText, projectId, uploadedFilePlotId]);
 
   const parsedUploadedNamesList = useMemo(() => {
     if (!uploadedFileText) return [];
-    return parsePastedText(uploadedFileText, shouldReverseHebrew);
-  }, [uploadedFileText, shouldReverseHebrew]);
+    return parsePastedText(uploadedFileText, projectId, shouldReverseHebrew, uploadedFilePlotId);
+  }, [uploadedFileText, projectId, shouldReverseHebrew, uploadedFilePlotId]);
 
   // File upload drag-and-drop & select methods
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -426,21 +509,84 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
     }
   };
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     setUploadedFileName(file.name);
-    const reader = new FileReader();
-    reader.onload = (event) => {
+    setFileSuccessMessage(null);
+    setFileErrorMessage(null);
+
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      setIsReadingPdf(true);
       try {
-        const text = event.target?.result as string;
-        setUploadedFileText(text);
+        const pdfjsLib = await loadPdfWorker();
+        if (!pdfjsLib) {
+          throw new Error("Unable to load PDF parser helper");
+        }
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            const typedarray = new Uint8Array(arrayBuffer);
+            const pdf = await pdfjsLib.getDocument({ data: typedarray }).promise;
+            
+            let extractedLines: string[] = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const textContent = await page.getTextContent();
+              const items = textContent.items;
+              
+              const linesMap: Record<number, any[]> = {};
+              items.forEach((item: any) => {
+                const y = Math.round(item.transform[5]);
+                let foundY = Object.keys(linesMap).find(existingY => Math.abs(Number(existingY) - y) <= 4);
+                if (foundY) {
+                  linesMap[Number(foundY)].push(item);
+                } else {
+                  linesMap[y] = [item];
+                }
+              });
+              
+              const sortedY = Object.keys(linesMap).map(Number).sort((a, b) => b - a);
+              sortedY.forEach(y => {
+                const lineItems = linesMap[y].sort((a, b) => a.transform[4] - b.transform[4]);
+                const lineStr = lineItems.map(item => item.str).join(' ');
+                extractedLines.push(lineStr);
+              });
+            }
+            
+            const fullText = extractedLines.join('\n');
+            setUploadedFileText(fullText);
+            setIsReadingPdf(false);
+          } catch (err) {
+            console.error("Error reading PDF content:", err);
+            setFileErrorMessage(lang === 'he' ? 'שגיאה בפענוח קובץ ה-PDF. ודא כי קובץ ה-PDF מכיל שכבת טקסט ולא תמונות סרוקות.' : 'Error parsing PDF content. Ensure the PDF contains text layer and is not scanned images.');
+            setIsReadingPdf(false);
+          }
+        };
+        reader.onerror = () => {
+          setFileErrorMessage(lang === 'he' ? 'שגיאה בקריאת הקובץ' : 'Error reading file');
+          setIsReadingPdf(false);
+        };
+        reader.readAsArrayBuffer(file);
       } catch (err) {
-        setFileErrorMessage(lang === 'he' ? 'שגיאה בקריאת הקובץ' : 'Error reading file');
+        console.error("Error loading PDF worker:", err);
+        setFileErrorMessage(lang === 'he' ? 'שגיאה בטעינת כלי פענוח PDF מהאינטרנט. נסה שוב.' : 'Error loading PDF parser helper. Please try again.');
+        setIsReadingPdf(false);
       }
-    };
-    reader.onerror = () => {
-      setFileErrorMessage(lang === 'he' ? 'שגיאה בקריאת הקובץ' : 'Error reading file');
-    };
-    reader.readAsText(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const text = event.target?.result as string;
+          setUploadedFileText(text);
+        } catch (err) {
+          setFileErrorMessage(lang === 'he' ? 'שגיאה בקריאת הקובץ' : 'Error reading file');
+        }
+      };
+      reader.onerror = () => {
+        setFileErrorMessage(lang === 'he' ? 'שגיאה בקריאת הקובץ' : 'Error reading file');
+      };
+      reader.readAsText(file);
+    }
   };
 
   const handleClearUploadedFile = () => {
@@ -448,6 +594,7 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
     setUploadedFileName(null);
     setFileSuccessMessage(null);
     setFileErrorMessage(null);
+    setIsReadingPdf(false);
   };
 
   const handleSaveUploadedPhones = async () => {
@@ -475,8 +622,8 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
         } else {
           finalUnit = {
             id: row.unitKey,
-            projectId: 'bnei-brak',
-            buildingId: getBuildingIdFromNum(row.buildingNum) || '',
+            projectId: projectId,
+            buildingId: row.buildingId || '',
             number: row.aptNum,
             statuses: {},
             history: [],
@@ -540,8 +687,8 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
         } else {
           finalUnit = {
             id: row.unitKey,
-            projectId: 'bnei-brak',
-            buildingId: getBuildingIdFromNum(row.buildingNum) || '',
+            projectId: projectId,
+            buildingId: row.buildingId || '',
             number: row.aptNum,
             statuses: {},
             history: [],
@@ -582,23 +729,24 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
   // Calculate total units in the import dataset
   const stats = useMemo(() => {
     let totalUnits = 0;
-    const buildingIds = Object.keys(TENANT_IMPORT_DATA).map(Number);
+    const activeImportData = getTenantImportByProject(projectId);
+    const buildingIds = Object.keys(activeImportData).map(Number);
     buildingIds.forEach(bId => {
-      totalUnits += Object.keys(TENANT_IMPORT_DATA[bId] || {}).length;
+      totalUnits += Object.keys(activeImportData[bId] || {}).length;
     });
     return {
       totalBuildings: buildingIds.length,
       totalUnits,
     };
-  }, []);
+  }, [projectId]);
 
   const parsedNamesList = useMemo(() => {
-    return parsePastedText(pastedNamesText, shouldReverseHebrew);
-  }, [pastedNamesText, shouldReverseHebrew]);
+    return parsePastedText(pastedNamesText, projectId, shouldReverseHebrew, pastedNamesPlotId);
+  }, [pastedNamesText, projectId, shouldReverseHebrew, pastedNamesPlotId]);
 
   const parsedPhonesList = useMemo(() => {
-    return parsePastedPhoneText(pastedPhonesText);
-  }, [pastedPhonesText]);
+    return parsePastedPhoneText(pastedPhonesText, projectId, pastedPhonesPlotId);
+  }, [pastedPhonesText, projectId, pastedPhonesPlotId]);
 
   const handleSavePastedPhones = async () => {
     if (parsedPhonesList.length === 0 || isSavingPhones) return;
@@ -625,8 +773,8 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
         } else {
           finalUnit = {
             id: row.unitKey,
-            projectId: 'bnei-brak',
-            buildingId: getBuildingIdFromNum(row.buildingNum) || '',
+            projectId: projectId,
+            buildingId: row.buildingId || '',
             number: row.aptNum,
             statuses: {},
             history: [],
@@ -666,19 +814,20 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
     setLogMessages([]);
     setStatusMessage(lang === 'he' ? 'מתחיל בייבוא דיירים מ-PDF...' : 'Starting tenant import from PDF...');
 
-    const buildingIds = Object.keys(TENANT_IMPORT_DATA).map(Number).sort((a, b) => a - b);
+    const activeImportData = getTenantImportByProject(projectId);
+    const buildingIds = Object.keys(activeImportData).map(Number).sort((a, b) => a - b);
     let overallCount = 0;
 
     try {
       for (const bId of buildingIds) {
         setCurrentBuilding(bId);
-        const buildingId = getBuildingIdFromNum(bId);
+        const buildingId = getBuildingIdFromNumAndProject(bId, projectId);
         if (!buildingId) {
-          console.warn(`Skipping building ${bId}, no plot assignment found.`);
+          console.warn(`Skipping building ${bId}, no plot assignment found for project ${projectId}.`);
           continue;
         }
 
-        const buildingData = TENANT_IMPORT_DATA[bId];
+        const buildingData = activeImportData[bId];
         const aptNumbers = Object.keys(buildingData).map(Number).sort((a, b) => a - b);
         
         setStatusMessage(
@@ -711,7 +860,7 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
           } else {
             finalUnit = {
               id: key,
-              projectId: 'bnei-brak',
+              projectId: projectId,
               buildingId: buildingId,
               number: aptNo,
               statuses: {},
@@ -783,8 +932,8 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
         } else {
           finalUnit = {
             id: row.unitKey,
-            projectId: 'bnei-brak',
-            buildingId: getBuildingIdFromNum(row.buildingNum) || '',
+            projectId: projectId,
+            buildingId: row.buildingId || '',
             number: row.aptNum,
             statuses: {},
             history: [],
@@ -948,6 +1097,23 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
                 : 'Copy lines from any phone or email list containing building, apartment, and phone numbers (such as page 89 of the PDF containing phone numbers in custom email addresses) and paste here. The system extracts and updates them automatically.'}
             </p>
 
+            {/* Plot Selector Setting */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+              <span className="text-xs font-black text-slate-755">
+                {lang === 'he' ? 'בחר מגרש ידנית (חלופי לזיהוי אוטומטי):' : 'Select Plot Manually (Overrides Auto-Detect):'}
+              </span>
+              <select
+                value={pastedPhonesPlotId}
+                onChange={(e) => setPastedPhonesPlotId(e.target.value)}
+                className="text-xs font-bold bg-white border border-slate-300 rounded-xl px-3 py-1.5 focus:border-indigo-500 outline-none"
+              >
+                <option value="auto">{lang === 'he' ? '🔍 זיהוי אוטומטי מהטקסט' : '🔍 Auto-Detect From Text'}</option>
+                {getPlotsForProject(projectId).map(plot => (
+                  <option key={plot.id} value={plot.id}>{lang === 'he' ? plot.name.he : plot.name.en}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex flex-col gap-2">
               <textarea
                 value={pastedPhonesText}
@@ -1049,9 +1215,26 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
               </h3>
               <p className="text-xs font-bold text-slate-450 leading-relaxed">
                 {lang === 'he'
-                  ? 'העלה קובץ טקסט (.txt, .csv, .json) שהעתקת מה-PDF המעודכן שלך. המערכת תפענח באופן אוטומטי את כל מספרי הטלפון המתאימים לדירות ולבניינים ותסנכרן אותם.'
-                  : 'Upload a text report file (.txt, .csv, .json) extracted from your updated PDF. The system automatically extracts all valid building/apartment numbers and correlates their phones.'}
+                  ? 'העלה קובץ טקסט (.txt, .csv, .json) או קובץ PDF (.pdf) שהעתקת מה-PDF המעודכן שלך. המערכת תפענח באופן אוטומטי את כל מספרי הטלפון המתאימים לדירות ולבניינים ותסנכרן אותם.'
+                  : 'Upload a text report file (.txt, .csv, .json) or a PDF file (.pdf) from your updated PDF. The system automatically extracts all valid building/apartment numbers and correlates their phones.'}
               </p>
+
+              {/* Plot Selector Setting */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                <span className="text-xs font-black text-slate-755">
+                  {lang === 'he' ? 'בחר מגרש ידנית (חלופי לזיהוי אוטומטי):' : 'Select Plot Manually (Overrides Auto-Detect):'}
+                </span>
+                <select
+                  value={uploadedFilePlotId}
+                  onChange={(e) => setUploadedFilePlotId(e.target.value)}
+                  className="text-xs font-bold bg-white border border-slate-300 rounded-xl px-3 py-1.5 focus:border-indigo-500 outline-none"
+                >
+                  <option value="auto">{lang === 'he' ? '🔍 זיהוי אוטומטי מהקובץ' : '🔍 Auto-Detect From File'}</option>
+                  {getPlotsForProject(projectId).map(plot => (
+                    <option key={plot.id} value={plot.id}>{lang === 'he' ? plot.name.he : plot.name.en}</option>
+                  ))}
+                </select>
+              </div>
 
               {/* Dynamic Drag & Drop Dropzone */}
               <div 
@@ -1059,6 +1242,7 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
                 onDragLeave={handleDragLeave}
                 onDrop={handleFileDrop}
                 onClick={() => {
+                  if (isReadingPdf) return;
                   const input = document.getElementById('uploaded-phones-file-input') as HTMLInputElement;
                   if (input) input.click();
                 }}
@@ -1068,35 +1252,46 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
                     : 'border-slate-200 bg-slate-50 hover:border-indigo-400 hover:bg-slate-50/80'
                 }`}
               >
-                <input 
-                  id="uploaded-phones-file-input"
-                  type="file" 
-                  accept=".txt,.csv,.json,.log" 
-                  onChange={handleFileSelect}
-                  className="hidden"
-                />
-                <div className="text-4xl mb-3">📥</div>
-                <div className="font-black text-sm text-indigo-700">
-                  {lang === 'he' ? 'גרור והשלך קובץ עדכון כאן או לחץ לבחירה' : 'Drag & drop your updated list file here, or click to browse'}
-                </div>
-                <p className="text-xs text-slate-400 mt-2 font-bold">
-                  {lang === 'he' ? 'תומך בקובצי טקסט (.txt) או אקסל (.csv) שהומרו לטקסט' : 'Supports plain text files (.txt) or comma-separated lists (.csv)'}
-                </p>
-                {uploadedFileName && (
-                  <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-150 rounded-full text-xs font-black text-emerald-800 shadow-md">
-                    <span>📄</span>
-                    <span>{uploadedFileName}</span>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleClearUploadedFile();
-                      }}
-                      className="text-rose-500 hover:text-rose-700 ml-2 font-black"
-                      title={lang === 'he' ? 'נקה קובץ' : 'Clear file'}
-                    >
-                      ❌
-                    </button>
+                {isReadingPdf ? (
+                  <div className="flex flex-col items-center justify-center p-4 space-y-3">
+                    <span className="inline-block animate-spin text-3xl font-sans">🔄</span>
+                    <div className="font-black text-sm text-indigo-700 animate-pulse">
+                      {lang === 'he' ? 'מחלץ ומפענח טקסט מקובץ ה-PDF... אנא המתן' : 'Extracting and parsing text from PDF... Please wait'}
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    <input 
+                      id="uploaded-phones-file-input"
+                      type="file" 
+                      accept=".txt,.csv,.json,.log,.pdf" 
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                    <div className="text-4xl mb-3">📥</div>
+                    <div className="font-black text-sm text-indigo-700">
+                      {lang === 'he' ? 'גרור והשלך קובץ עדכון כאן (תומך גם ב-PDF) או לחץ לבחירה' : 'Drag & drop your updated list file here (supports PDF), or click to browse'}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2 font-bold">
+                      {lang === 'he' ? 'תומך בקובצי PDF (.pdf), טקסט (.txt) או אקסל (.csv)' : 'Supports PDF files (.pdf), plain text files (.txt) or comma-separated lists (.csv)'}
+                    </p>
+                    {uploadedFileName && (
+                      <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-150 rounded-full text-xs font-black text-emerald-800 shadow-md">
+                        <span>📄</span>
+                        <span>{uploadedFileName}</span>
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleClearUploadedFile();
+                          }}
+                          className="text-rose-500 hover:text-rose-700 ml-2 font-black"
+                          title={lang === 'he' ? 'נקה קובץ' : 'Clear file'}
+                        >
+                          ❌
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -1235,6 +1430,23 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
             </div>
           </div>
 
+          {/* Plot Selector Setting */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+            <span className="text-xs font-black text-slate-755">
+              {lang === 'he' ? 'בחר מגרש ידנית (חלופי לזיהוי אוטומטי):' : 'Select Plot Manually (Overrides Auto-Detect):'}
+            </span>
+            <select
+              value={pastedNamesPlotId}
+              onChange={(e) => setPastedNamesPlotId(e.target.value)}
+              className="text-xs font-bold bg-white border border-slate-300 rounded-xl px-3 py-1.5 focus:border-indigo-500 outline-none"
+            >
+              <option value="auto">{lang === 'he' ? '🔍 זיהוי אוטומטי מהטקסט' : '🔍 Auto-Detect From Text'}</option>
+              {getPlotsForProject(projectId).map(plot => (
+                <option key={plot.id} value={plot.id}>{lang === 'he' ? plot.name.he : plot.name.en}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-col gap-2">
             <label className="text-xs font-black text-slate-400 uppercase tracking-wider">{lang === 'he' ? 'טקסט מועתק מהקובץ' : 'Pasted PDF Text'}</label>
             <textarea
@@ -1345,9 +1557,26 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
             </h3>
             <p className="text-xs font-bold text-slate-450 leading-relaxed">
               {lang === 'he'
-                ? 'העלה קובץ טקסט (.txt, .csv) המכיל שמות של דיירים. המערכת תהפוך אותם אוטומטית לעברית תקינה ותסנכרן אותם.'
-                : 'Upload a text file (.txt, .csv) containing tenant names. The system will reverse Visual Hebrew backwards names and write them RTL correctly.'}
+                ? 'העלה קובץ טקסט (.txt, .csv) או קובץ PDF (.pdf) המכיל שמות של דיירים. המערכת תהפוך אותם אוטומטית לעברית תקינה ותסנכרן אותם.'
+                : 'Upload a text file (.txt, .csv) or a PDF file (.pdf) containing tenant names. The system will reverse Visual Hebrew backwards names and write them RTL correctly.'}
             </p>
+
+            {/* Plot Selector Setting */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+              <span className="text-xs font-black text-slate-755">
+                {lang === 'he' ? 'בחר מגרש ידנית (חלופי לזיהוי אוטומטי):' : 'Select Plot Manually (Overrides Auto-Detect):'}
+              </span>
+              <select
+                value={uploadedFilePlotId}
+                onChange={(e) => setUploadedFilePlotId(e.target.value)}
+                className="text-xs font-bold bg-white border border-slate-300 rounded-xl px-3 py-1.5 focus:border-indigo-500 outline-none"
+              >
+                <option value="auto">{lang === 'he' ? '🔍 זיהוי אוטומטי מהקובץ' : '🔍 Auto-Detect From File'}</option>
+                {getPlotsForProject(projectId).map(plot => (
+                  <option key={plot.id} value={plot.id}>{lang === 'he' ? plot.name.he : plot.name.en}</option>
+                ))}
+              </select>
+            </div>
 
             {/* Dynamic Drag & Drop Dropzone for Names */}
             <div 
@@ -1355,6 +1584,7 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
               onDragLeave={handleDragLeave}
               onDrop={handleFileDrop}
               onClick={() => {
+                if (isReadingPdf) return;
                 const input = document.getElementById('uploaded-names-file-input') as HTMLInputElement;
                 if (input) input.click();
               }}
@@ -1364,35 +1594,46 @@ export const TenantImporter: React.FC<Props> = ({ lang }) => {
                   : 'border-slate-200 bg-slate-50 hover:border-indigo-400 hover:bg-slate-50/80'
               }`}
             >
-              <input 
-                id="uploaded-names-file-input"
-                type="file" 
-                accept=".txt,.csv,.json,.log" 
-                onChange={handleFileSelect}
-                className="hidden"
-              />
-              <div className="text-4xl mb-3">👤</div>
-              <div className="font-black text-sm text-indigo-700">
-                {lang === 'he' ? 'גרור והשלך קובץ עדכון שמות כאן או לחץ לבחירה' : 'Drag & drop names list file here, or click to browse'}
-              </div>
-              <p className="text-xs text-slate-400 mt-2 font-bold">
-                {lang === 'he' ? 'תומך בקובצי טקסט (.txt) או אקסל (.csv)' : 'Supports plain text files (.txt) or list files (.csv)'}
-              </p>
-              {uploadedFileName && (
-                <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-150 rounded-full text-xs font-black text-emerald-800 shadow-md">
-                  <span>📄</span>
-                  <span>{uploadedFileName}</span>
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleClearUploadedFile();
-                    }}
-                    className="text-rose-500 hover:text-rose-700 ml-2 font-black"
-                    title={lang === 'he' ? 'נקה קובץ' : 'Clear file'}
-                  >
-                    ❌
-                  </button>
+              {isReadingPdf ? (
+                <div className="flex flex-col items-center justify-center p-4 space-y-3">
+                  <span className="inline-block animate-spin text-3xl font-sans">🔄</span>
+                  <div className="font-black text-sm text-indigo-700 animate-pulse">
+                    {lang === 'he' ? 'מחלץ ומפענח טקסט מקובץ ה-PDF... אנא המתן' : 'Extracting and parsing text from PDF... Please wait'}
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <input 
+                    id="uploaded-names-file-input"
+                    type="file" 
+                    accept=".txt,.csv,.json,.log,.pdf" 
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <div className="text-4xl mb-3">👤</div>
+                  <div className="font-black text-sm text-indigo-700">
+                    {lang === 'he' ? 'גרור והשלך קובץ עדכון שמות כאן (תומך גם ב-PDF) או לחץ לבחירה' : 'Drag & drop names list file here (supports PDF), or click to browse'}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2 font-bold">
+                    {lang === 'he' ? 'תומך בקובצי PDF (.pdf), טקסט (.txt) או אקסל (.csv)' : 'Supports PDF files (.pdf), plain text files (.txt) or list files (.csv)'}
+                  </p>
+                  {uploadedFileName && (
+                    <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-white border border-slate-150 rounded-full text-xs font-black text-emerald-800 shadow-md">
+                      <span>📄</span>
+                      <span>{uploadedFileName}</span>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClearUploadedFile();
+                        }}
+                        className="text-rose-500 hover:text-rose-700 ml-2 font-black"
+                        title={lang === 'he' ? 'נקה קובץ' : 'Clear file'}
+                      >
+                        ❌
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

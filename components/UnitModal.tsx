@@ -205,6 +205,20 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
       if (completingTaskId) {
         updates.updateLogStatus = { logId: completingTaskId, newStatus: TaskStatus.DONE };
       }
+
+      if (data.followupDisciplineId && data.followupDisciplineId !== 'none') {
+        const disc = disciplines.find(d => d.id === data.followupDisciplineId);
+        const discName = disc?.labels[lang] || disc?.labels.he || data.followupDisciplineId;
+        
+        updates.newLog = {
+          status: TaskStatus.COORDINATION_REQUIRED,
+          workerName: `${lang === 'he' ? 'דרוש' : lang === 'ru' ? 'Требуется' : 'مطلوب'}: ${discName}`,
+          contractor: discName,
+          contractorId: data.followupDisciplineId,
+          description: lang === 'he' ? 'נדרש תיאום בעל מקצוע המשך לאחר סיום עבודה' : lang === 'ru' ? 'Требуется координация следующего специалиста после завершения работ' : 'مطلوب تنسيق مهني متابع بعد انتهاء العمل',
+          discipline: data.followupDisciplineId,
+        };
+      }
       
       onSave(updates);
       setIsPhotoModalOpen(false);
@@ -393,19 +407,28 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                       )}
                     </div>
                   )}
-                  {activeTasks.map(task => (
-                    <div key={task.id} className="bg-white border-2 border-blue-500 rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden ring-8 ring-blue-500/5">
-                      <div className="absolute top-0 left-0 w-3 h-full bg-blue-600"></div>
-                      <div className="flex justify-between items-start mb-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-2xl bg-blue-50 flex items-center justify-center text-2xl border-2 border-blue-100 shadow-inner">{task.contractor.includes('אינסטלטור') ? '🚰' : '👷'}</div>
-                          <div>
-                            <span className="font-black text-blue-900 text-xl block leading-tight">{task.workerName}</span>
-                            <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-md font-black uppercase mt-1 inline-block shadow-sm">{task.contractor}</span>
+                  {activeTasks.map(task => {
+                    const isCoordination = task.status === TaskStatus.COORDINATION_REQUIRED;
+                    const cardBorderClass = isCoordination ? 'border-indigo-500 ring-indigo-500/5' : 'border-blue-500 ring-blue-500/5';
+                    const stripBgClass = isCoordination ? 'bg-indigo-600' : 'bg-blue-600';
+                    const avatarBgClass = isCoordination ? 'bg-indigo-50 border-indigo-100 font-mono text-xl' : 'bg-blue-50 border-blue-100 text-2xl';
+                    const badgeBgClass = isCoordination ? 'bg-indigo-600' : 'bg-blue-600';
+
+                    return (
+                      <div key={task.id} className={`bg-white border-2 ${cardBorderClass} rounded-[2.5rem] p-6 shadow-2xl relative overflow-hidden ring-8`}>
+                        <div className={`absolute top-0 left-0 w-3 h-full ${stripBgClass}`}></div>
+                        <div className="flex justify-between items-start mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-12 h-12 rounded-2xl ${avatarBgClass} flex items-center justify-center border-2 shadow-inner`}>
+                              {task.contractor.includes('אינסטלטור') || task.contractor.includes('אינסטלציה') ? '🚰' : task.contractor.includes('חשמלאי') || task.contractor.includes('חשמל') ? '⚡' : task.contractor.includes('איטום') || task.contractor.includes('עזר') ? '💧' : task.contractor.includes('גז') || task.contractor.includes('gas') ? '⛽' : '👷'}
+                            </div>
+                            <div>
+                              <span className="font-black text-blue-900 text-xl block leading-tight">{task.workerName}</span>
+                              <span className={`text-[10px] ${badgeBgClass} text-white px-2 py-0.5 rounded-md font-black uppercase mt-1 inline-block shadow-sm`}>{task.contractor}</span>
+                            </div>
                           </div>
+                          <div className={`text-[10px] font-black px-3 py-1 rounded-full border-2 shadow-sm ${STATUS_CONFIG[task.status].color}`}>{(t as any)[STATUS_CONFIG[task.status].labelKey]}</div>
                         </div>
-                        <div className={`text-[10px] font-black px-3 py-1 rounded-full border-2 shadow-sm ${STATUS_CONFIG[task.status].color}`}>{(t as any)[STATUS_CONFIG[task.status].labelKey]}</div>
-                      </div>
                       <div className="bg-slate-50/80 p-5 rounded-3xl border border-slate-100 shadow-inner mb-6">
                         <ExpandableText text={task.description} lang={lang} className="text-sm font-bold text-gray-700 leading-relaxed" defaultClamped={false} />
                         {task.images && task.images.length > 0 && (
@@ -435,7 +458,8 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                        )}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : filteredHistory.length === 0 ? (
                 <div className="text-center py-20 bg-white rounded-[3rem] border-2 border-dashed border-gray-100">
@@ -688,6 +712,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
         <WorkConfirmationModal 
           lang={lang} 
           unitId={unit.id}
+          disciplines={disciplines}
           onClose={() => { setIsPhotoModalOpen(false); setCompletingTaskId(null); }}
           onConfirm={handleWorkConfirmation}
         />

@@ -730,7 +730,7 @@ const App: React.FC = () => {
             </section>
           </div>
         ) : viewMode === 'users' && isAdmin ? (
-          <UserManagement lang={lang} />
+          <UserManagement lang={lang} projectId={selectedProjectId || 'bnei-brak'} />
         ) : (
           <>
             <section className="mt-4">

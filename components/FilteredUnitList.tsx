@@ -110,11 +110,39 @@ const FilteredUnitList: React.FC<Props> = ({ state, lang, selectedPlotId, discip
             const isPublicArea = isNaN(Number(unitIdentifier));
             const publicAreaConfig = isPublicArea ? PUBLIC_AREAS.find(a => a.id === unitIdentifier) : null;
 
+            const isCoordTask = statusFilter === TaskStatus.COORDINATION_REQUIRED || 
+                                unit.history.some(h => h.status === TaskStatus.COORDINATION_REQUIRED);
+
+            if (isCoordTask && statusFilter === TaskStatus.COORDINATION_REQUIRED) {
+              const projectObj = state.projects.find(p => p.id === unit.projectId);
+              const projectName = projectObj ? projectObj.name : (unit.projectId === 'beer-yaakov' ? 'באר יעקב תלמים' : 'בני ברק');
+              const lastCoordinationLog = unit.history.find(h => h.status === TaskStatus.COORDINATION_REQUIRED);
+              const professionTitle = lastCoordinationLog?.workerName || (lang === 'he' ? 'דרוש: בעל מקצוע' : 'Required: Profession');
+
+              return (
+                <button
+                  key={unit.id}
+                  onClick={() => onSelectUnit(unit.buildingId, isPublicArea ? unitIdentifier : unit.number)}
+                  className="flex items-center justify-between p-5 rounded-2xl border-2 transition-all hover:shadow-xl hover:-translate-y-1 active:scale-95 text-right bg-indigo-50 border-indigo-200 text-indigo-950 shadow-sm w-full"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-indigo-500 tracking-widest leading-none mb-1">{projectName}</span>
+                    <span className="text-[11px] font-bold text-slate-500 leading-tight mb-1">{buildingName}</span>
+                    <span className="text-xl font-black">{isPublicArea ? (t as any)[publicAreaConfig?.labelKey || ''] : `${t.apartment} ${unitIdentifier}`}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] font-black bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md mb-2">{isPublicArea ? 'PL' : 'AP'}-{unit.number || '0'}</span>
+                    <span className="text-xs font-black text-indigo-600 animate-pulse">{professionTitle}</span>
+                  </div>
+                </button>
+              );
+            }
+
             return (
               <button
                 key={unit.id}
                 onClick={() => onSelectUnit(unit.buildingId, isPublicArea ? unitIdentifier : unit.number)}
-                className={`flex items-center justify-between p-5 rounded-2xl border-2 transition-all hover:shadow-xl hover:-translate-y-1 active:scale-95 text-right group ${config?.color || 'bg-slate-50 border-slate-100 text-slate-700'}`}
+                className={`flex items-center justify-between p-5 rounded-2xl border-2 transition-all hover:shadow-xl hover:-translate-y-1 active:scale-95 text-right group w-full ${config?.color || 'bg-slate-50 border-slate-100 text-slate-700'}`}
               >
                 <div className="flex flex-col">
                   <span className="text-[10px] font-black uppercase opacity-60 tracking-widest">{buildingName}</span>

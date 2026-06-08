@@ -1,4 +1,4 @@
-export const TENANT_IMPORT_DATA: Record<number, Record<number, string>> = {
+export const TENANT_IMPORT_DATA_BNEI_BRAK: Record<number, Record<number, string>> = {
   1: {
     1: '0504448686', 2: '0503322238', 3: '050-570863', 4: '0506291627', 5: '0504177470',
     6: '050-570863', 7: '050-5708633', 9: '0502044016', 10: '0548597560', 11: '0534108852',
@@ -316,4 +316,16 @@ export const TENANT_IMPORT_DATA: Record<number, Record<number, string>> = {
     36: '0548422843', 37: '0548432988', 38: '0543516594', 39: '0537337933', 40: '0542172466',
     41: '0544311653', 44: '0545969222', 45: '0506291324'
   }
+};
+
+export const TENANT_IMPORT_DATA_BEER_YAAKOV: Record<number, Record<number, string>> = {};
+
+// Backwards compatibility legacy export
+export const TENANT_IMPORT_DATA = TENANT_IMPORT_DATA_BNEI_BRAK;
+
+export const getTenantImportByProject = (projectId: string): Record<number, Record<number, string>> => {
+  if (projectId === 'beer-yaakov') {
+    return TENANT_IMPORT_DATA_BEER_YAAKOV;
+  }
+  return TENANT_IMPORT_DATA_BNEI_BRAK;
 };
