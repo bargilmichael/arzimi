@@ -47,6 +47,49 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
   const [desc, setDesc] = useState('');
   const [contractorId, setContractorId] = useState<string>('');
 
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationError, setTranslationError] = useState<string | null>(null);
+  const [lastTranslatedLang, setLastTranslatedLang] = useState(lang);
+
+  const handleTranslateDescription = async (targetLang: string) => {
+    if (!desc || !desc.trim()) return;
+    setIsTranslating(true);
+    setTranslationError(null);
+    try {
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: desc,
+          targetLanguage: targetLang,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(lang === 'he' ? 'שגיאה בתרגום' : lang === 'ru' ? 'Ошибка перевода' : 'خطأ في الترجمة');
+      }
+      const data = await response.json();
+      if (data.translation) {
+        setDesc(data.translation);
+        setLastTranslatedLang(targetLang);
+      }
+    } catch (err: any) {
+      console.error('Translation error:', err);
+      setTranslationError(lang === 'he' ? 'אירעה שגיאה בתרגום הטקסט באמצעות AI' : lang === 'ru' ? 'Произошла ошибка при переводе через AI' : 'حدث خطأ أثناء الترجمة באמצעות AI');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
+  useEffect(() => {
+    if (desc && desc.trim() && lang !== lastTranslatedLang) {
+      handleTranslateDescription(lang);
+    } else {
+      setLastTranslatedLang(lang);
+    }
+  }, [lang]);
+
   useEffect(() => {
     if (disciplines.length > 0) {
       if (userRole === 'contractor' && activeDiscipline && activeDiscipline !== 'all' && activeDiscipline !== 'general') {
@@ -695,8 +738,28 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                     )}
                   </div>
                   <div className="md:col-span-2 space-y-3">
-                    <label className="text-[11px] font-black text-gray-400 uppercase px-1 tracking-widest">{t.whatWasDone}</label>
-                    <textarea value={desc} onChange={e => setDesc(e.target.value)} rows={4} className="w-full px-6 py-5 rounded-[2.5rem] border-2 border-gray-100 focus:border-blue-500 outline-none resize-none font-bold shadow-sm text-lg placeholder:opacity-20" placeholder={t.descriptionPlaceholder} />
+                    <div className="flex justify-between items-center px-1">
+                      <label className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{t.whatWasDone}</label>
+                      {desc && desc.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => handleTranslateDescription(lang)}
+                          disabled={isTranslating}
+                          className="text-[10px] sm:text-[11px] font-black text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100/60 active:scale-95 disabled:opacity-50 border border-indigo-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+                        >
+                          {isTranslating ? (
+                            <span className="inline-block animate-spin h-3 w-3 border-2 border-indigo-600 border-t-transparent rounded-full" />
+                          ) : (
+                            <span className="text-yellow-500">✨</span>
+                          )}
+                          {lang === 'he' ? 'תרגם תיאור עם AI' : lang === 'ru' ? 'Перевести описание с AI' : 'ترجمة الوصف باستخدام الذكي'}
+                        </button>
+                      )}
+                    </div>
+                    <textarea value={desc} onChange={e => { setDesc(e.target.value); setTranslationError(null); }} rows={4} className="w-full px-6 py-5 rounded-[2.5rem] border-2 border-gray-100 focus:border-blue-500 outline-none resize-none font-bold shadow-sm text-lg placeholder:opacity-20" placeholder={t.descriptionPlaceholder} />
+                    {translationError && (
+                      <p className="text-xs font-bold text-red-500 px-1 animate-pulse">{translationError}</p>
+                    )}
                   </div>
                   <button type="submit" className="md:col-span-2 bg-blue-600 text-white font-black py-7 rounded-[2rem] hover:bg-blue-700 transition-all shadow-2xl active:scale-95 text-2xl tracking-[0.2em]">
                     {editingLogId ? (lang === 'he' ? 'שמור שינויים' : 'Save Changes') : t.updateButton}
