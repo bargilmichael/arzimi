@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
+import axios from "axios";
 
 async function startServer() {
   const app = express();
@@ -89,7 +90,7 @@ ${text}`;
     }
   });
 
-  // SMS Deletion or general SMS Gateway (TextBee integration)
+  // SMS Gateway (TextBee integration)
   app.post("/api/send-sms", async (req, res) => {
     try {
       const { phone, message } = req.body;
@@ -97,7 +98,7 @@ ${text}`;
         return res.status(400).json({ error: "Missing phone or message parameter." });
       }
 
-      console.log(`Sending SMS to: ${phone}, message: ${message}`);
+      console.log(`Sending SMS to: ${phone}`);
 
       // Normalize phone number for Israeli cellular providers
       let targetPhone = phone.trim();
@@ -117,29 +118,30 @@ ${text}`;
       const apiKey = process.env.TEXTBEE_API_KEY || "f8d4b8e1-d961-4181-8860-525a0dfc203f";
 
       const url = `https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/send-sms`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey
-        },
-        body: JSON.stringify({
+
+      console.log(`Requesting TextBee URL: ${url} with phone: ${targetPhone}`);
+
+      const response = await axios.post(
+        url,
+        {
           recipients: [targetPhone],
           message: message
-        })
-      });
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey
+          }
+        }
+      );
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`TextBee API error (${response.status}): ${errorText}`);
-      }
-
-      const responseData = await response.json();
-      console.log(`SMS successfully sent via TextBee to ${targetPhone}:`, responseData);
-      res.json({ success: true, data: responseData });
+      console.log(`SMS successfully sent via TextBee to ${targetPhone}:`, response.data);
+      res.json({ success: true, data: response.data });
     } catch (error: any) {
-      console.error("Failed to send SMS:", error);
-      res.status(500).json({ error: error.message || "Failed to send SMS via TextBee" });
+      console.error("Failed to send SMS:", error.response?.data || error.message || error);
+      res.status(500).json({ 
+        error: error.response?.data?.message || error.message || "Failed to send SMS via TextBee" 
+      });
     }
   });
 
