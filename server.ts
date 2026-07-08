@@ -32,19 +32,57 @@ async function startServer() {
         }
       });
 
-      const prompt = `Translate the following professional construction or contractor task report description into the language corresponding to code "${targetLanguage}" (which is either hebrew ("he"), russian ("ru"), or arabic ("ar")).
-Maintain any item identifiers, apartment/unit numbers, emoji structures, and formatting verbatim. Do not add any conversational intros, reviews, or markdown code block wrapper lines. Only return the pure translated text itself.
+      const prompt = `You are a professional construction and contractor task report translator for a quality control application (Bedek). 
+Your sole task is to translate the input text precisely into the target language requested by the user's language code ("${targetLanguage}", which represents "he" for Hebrew, "ru" for Russian, "ar" for Arabic).
+
+CRITICAL RULES:
+1. Maintain all layout structures, item identifiers, apartment/unit numbers, and emoji structures verbatim.
+2. Maintain technical construction terminology accurately in the target language.
+3. Do NOT add any conversational intros, explanations, summaries, reviews, or markdown code block wrapper lines (like \`\`\`).
+4. Return ONLY the pure translated text itself.
 
 Text to translate:
 ${text}`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-      });
+      // Flexible models in order of preference
+      const models = ["gemini-3.5-flash", "gemini-3.1-flash-lite"];
+      let translatedText = "";
+      let lastError: any = null;
+      let success = false;
 
-      const translatedText = response.text || "";
-      res.json({ translation: translatedText.trim() });
+      for (const model of models) {
+        if (success) break;
+        // Try up to 3 times per model with exponential backoff on transient errors
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            console.log(`Attempting translation with model ${model} (attempt ${attempt}/3)...`);
+            const response = await ai.models.generateContent({
+              model,
+              contents: prompt,
+            });
+
+            if (response && response.text) {
+              translatedText = response.text.trim();
+              success = true;
+              console.log(`Translation succeeded using model: ${model}`);
+              break;
+            }
+          } catch (error: any) {
+            lastError = error;
+            console.error(`Attempt ${attempt} with model ${model} failed:`, error.message || error);
+            if (attempt < 3) {
+              const delay = attempt * 1000; // 1s, 2s backoff
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+          }
+        }
+      }
+
+      if (!success) {
+        throw lastError || new Error("All translation models and retry attempts failed.");
+      }
+
+      res.json({ translation: translatedText });
     } catch (error: any) {
       console.error("Translation api error:", error);
       res.status(500).json({ error: error.message || "Failed to translate content via Gemini" });

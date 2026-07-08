@@ -78,10 +78,34 @@ const WorkConfirmationModal: React.FC<Props> = ({ lang, unitId, disciplines, onC
     try {
       if (selectedFile) {
         console.log("Starting image upload to Firebase Storage...");
-        const storageRef = ref(storage, `confirmations/${unitId}_${Date.now()}_${selectedFile.name}`);
-        await uploadBytes(storageRef, selectedFile);
-        attachmentUrl = await getDownloadURL(storageRef);
-        console.log("Image uploaded, URL:", attachmentUrl);
+        try {
+          // Attempt upload with a 5-second timeout
+          const uploadPromise = (async () => {
+            const storageRef = ref(storage, `confirmations/${unitId}_${Date.now()}_${selectedFile.name}`);
+            await uploadBytes(storageRef, selectedFile);
+            return await getDownloadURL(storageRef);
+          })();
+
+          const timeoutPromise = new Promise<string>((_, reject) =>
+            setTimeout(() => reject(new Error("Storage upload timeout")), 5000)
+          );
+
+          attachmentUrl = await Promise.race([uploadPromise, timeoutPromise]);
+          console.log("Image uploaded to Firebase Storage successfully, URL:", attachmentUrl);
+        } catch (storageErr) {
+          console.warn("Firebase Storage upload failed or timed out. Falling back to local base64 data URL...", storageErr);
+          // Resilient base64 fallback
+          attachmentUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+              resolve(reader.result as string);
+            };
+            reader.onerror = () => {
+              reject(new Error("Failed to read file as base64 data URL"));
+            };
+            reader.readAsDataURL(selectedFile);
+          });
+        }
       }
 
       onConfirm({

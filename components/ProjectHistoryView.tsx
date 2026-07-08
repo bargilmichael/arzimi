@@ -14,14 +14,19 @@ interface Props {
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
   disciplines: DisciplineDefinition[];
+  deletionPassword?: string;
 }
 
-const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpdate, onClearAll, onDeleteMyTasks, userRole, userDiscipline, disciplines }) => {
+const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpdate, onClearAll, onDeleteMyTasks, userRole, userDiscipline, disciplines, deletionPassword }) => {
   const [filterPlot, setFilterPlot] = useState<string>('all');
   const [filterBuilding, setFilterBuilding] = useState<string>('all');
   const [filterContractor, setFilterContractor] = useState<string>('all');
   const [filterUnit, setFilterUnit] = useState<string>('all');
-  const [filterDate, setFilterDate] = useState<string>('');
+  const [filterStartDate, setFilterStartDate] = useState<string>('');
+  const [filterEndDate, setFilterEndDate] = useState<string>('');
+  
+  const [enteredPassword, setEnteredPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
   
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [viewingConfirmationId, setViewingConfirmationId] = useState<string | null>(null);
@@ -71,12 +76,30 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
   const confirmDelete = () => {
     if (confirmModal.type === 'single' && confirmModal.unit && confirmModal.logId) {
       onUpdate({ deleteLogId: confirmModal.logId }, confirmModal.unit);
+      setConfirmModal({ show: false, type: 'single' });
     } else if (confirmModal.type === 'my-tasks' && onDeleteMyTasks) {
       onDeleteMyTasks();
+      setConfirmModal({ show: false, type: 'single' });
     } else if (confirmModal.type === 'clear-all' && onClearAll) {
+      if (!deletionPassword) {
+        setPasswordError(lang === 'he' ? 'טרם הוגדרה סיסמה למחיקה על ידי מנהל מערכת במסך משתמשים.' : 'A deletion password has not been configured yet by the administrator in the User Management screen.');
+        return;
+      }
+      if (enteredPassword !== deletionPassword) {
+        setPasswordError(lang === 'he' ? 'סיסמה שגויה! מחיקה נכשלה.' : 'Incorrect password! Deletion failed.');
+        return;
+      }
       onClearAll();
+      setConfirmModal({ show: false, type: 'single' });
     }
+    setEnteredPassword('');
+    setPasswordError('');
+  };
+
+  const closeConfirmModal = () => {
     setConfirmModal({ show: false, type: 'single' });
+    setEnteredPassword('');
+    setPasswordError('');
   };
 
   const handleDelete = (unit: Unit, logId: string) => {
@@ -124,7 +147,9 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
         const matchesUnit = filterUnit === 'all' || unitIdentifier === filterUnit;
 
         const logDate = new Date(log.timestamp).toISOString().split('T')[0];
-        const matchesDate = !filterDate || logDate === filterDate;
+        const matchesStartDate = !filterStartDate || logDate >= filterStartDate;
+        const matchesEndDate = !filterEndDate || logDate <= filterEndDate;
+        const matchesDate = matchesStartDate && matchesEndDate;
 
         if (matchesPlot && matchesBuilding && matchesContractor && matchesUnit && matchesDiscipline && matchesDate) {
           allLogs.push({ log, unit });
@@ -133,14 +158,76 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
     });
     // Sort by newest first
     return allLogs.sort((a, b) => b.log.timestamp - a.log.timestamp);
-  }, [state, filterPlot, filterBuilding, filterContractor, filterUnit, filterDate, buildingToPlot]);
+  }, [state, filterPlot, filterBuilding, filterContractor, filterUnit, filterStartDate, filterEndDate, buildingToPlot]);
 
   const resetFilters = () => {
     setFilterPlot('all');
     setFilterBuilding('all');
     setFilterContractor('all');
     setFilterUnit('all');
-    setFilterDate('');
+    setFilterStartDate('');
+    setFilterEndDate('');
+  };
+
+  const handleExportCSV = () => {
+    const headers = [
+      lang === 'he' ? 'מגרש' : 'Plot',
+      lang === 'he' ? 'בניין' : 'Building',
+      lang === 'he' ? 'דירה / מיקום' : 'Apartment / Location',
+      lang === 'he' ? 'תיאור משימה' : 'Task Description',
+      lang === 'he' ? 'סטטוס משימה' : 'Task Status',
+      lang === 'he' ? 'תאריך פתיחה' : 'Start Date',
+      lang === 'he' ? 'תאריך סיום' : 'End Date',
+      lang === 'he' ? 'שם עובד' : 'Worker Name',
+      lang === 'he' ? 'טלפון דייר' : 'Tenant Phone'
+    ];
+
+    const rows = filteredLogs.map(({ log, unit }) => {
+      const plotId = buildingToPlot[unit.buildingId];
+      const plot = state.plots.find(p => p.id === plotId);
+      const plotName = plot ? plot.name : plotId;
+      
+      const buildingIdParts = unit.buildingId.split('-');
+      const buildingNum = buildingIdParts[3] || buildingIdParts[buildingIdParts.length - 1];
+      
+      const unitIdParts = unit.id.split('-');
+      const unitIdentifier = unitIdParts[unitIdParts.length - 1];
+      const isPublic = isNaN(Number(unitIdentifier));
+      const unitLabel = isPublic ? ((t as any)[`area_${unitIdentifier}`] || unitIdentifier) : unitIdentifier;
+
+      const statusLabel = (t as any)[STATUS_CONFIG[log.status].labelKey] || log.status;
+      
+      const startDate = new Date(log.timestamp).toLocaleDateString('he-IL');
+      const endDate = log.completedAt ? new Date(log.completedAt).toLocaleDateString('he-IL') : '';
+      
+      const tenantPhone = unit.tenantInfo?.phone || '';
+
+      return [
+        plotName,
+        buildingNum,
+        unitLabel,
+        log.description,
+        statusLabel,
+        startDate,
+        endDate,
+        log.workerName,
+        tenantPhone
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(e => e.map(val => `"${val.toString().replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bedek_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
@@ -166,6 +253,14 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                   className="bg-red-50 text-red-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-red-100 transition-all border border-red-100 flex items-center gap-2"
                 >
                   🗑️ {lang === 'he' ? 'מחק את כל ההיסטוריה' : 'Clear All History'}
+                </button>
+              )}
+              {filteredLogs.length > 0 && (
+                <button 
+                  onClick={handleExportCSV}
+                  className="bg-green-50 text-green-700 px-4 py-2 rounded-xl text-xs font-black hover:bg-green-100 transition-all border border-green-200 flex items-center gap-2 shadow-sm"
+                >
+                  📥 {lang === 'he' ? 'ייצוא לאקסל' : 'Export to Excel'}
                 </button>
               )}
             </div>
@@ -252,13 +347,24 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
             </select>
           </div>
 
-          {/* Date Filter */}
+          {/* From Date Filter */}
           <div className="space-y-1">
-            <label className="text-[10px] font-bold text-gray-400 uppercase px-1">{t.dateLabel}</label>
+            <label className="text-[10px] font-bold text-gray-400 uppercase px-1">{lang === 'he' ? 'מתאריך' : 'From Date'}</label>
             <input 
               type="date"
-              value={filterDate}
-              onChange={(e) => setFilterDate(e.target.value)}
+              value={filterStartDate}
+              onChange={(e) => setFilterStartDate(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none h-[42px]"
+            />
+          </div>
+
+          {/* To Date Filter */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-bold text-gray-400 uppercase px-1">{lang === 'he' ? 'עד תאריך' : 'To Date'}</label>
+            <input 
+              type="date"
+              value={filterEndDate}
+              onChange={(e) => setFilterEndDate(e.target.value)}
               className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none h-[42px]"
             />
           </div>
@@ -490,11 +596,35 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                confirmModal.type === 'my-tasks' ? (lang === 'he' ? 'מחיקת כל המשימות שלי' : 'Delete All My Tasks') : 
                (lang === 'he' ? 'מחיקת כל ההיסטוריה' : 'Clear All History')}
             </h3>
-            <p className="text-center text-gray-500 font-bold mb-8">
+            <p className="text-center text-gray-500 font-bold mb-6">
               {confirmModal.type === 'single' ? (t as any).confirmDelete : 
                confirmModal.type === 'my-tasks' ? (lang === 'he' ? 'האם אתה בטוח שברצונך למחוק את כל המשימות שלך מההיסטוריה?' : 'Are you sure you want to delete all your tasks from history?') :
                (lang === 'he' ? 'האם אתה בטוח שברצונך למחוק את כל ההיסטוריה?' : 'Are you sure you want to clear all history?')}
             </p>
+
+            {confirmModal.type === 'clear-all' && (
+              <div className="mb-6 space-y-2 text-right" dir={lang === 'he' || lang === 'ar' ? 'rtl' : 'ltr'}>
+                <label className="text-xs font-black text-gray-400 uppercase px-2 tracking-widest block">
+                  {lang === 'he' ? 'סיסמת מנהל לאישור המחיקה:' : 'Admin Password to Confirm Deletion:'}
+                </label>
+                <input 
+                  type="password"
+                  placeholder={lang === 'he' ? 'הקלד סיסמה כאן...' : 'Type password here...'}
+                  value={enteredPassword}
+                  onChange={e => {
+                    setEnteredPassword(e.target.value);
+                    setPasswordError('');
+                  }}
+                  className="w-full p-3.5 rounded-2xl border-2 border-slate-100 focus:border-red-500 outline-none font-bold text-center transition-all bg-slate-50/30 text-sm"
+                />
+                {passwordError && (
+                  <p className="text-xs font-bold text-red-500 text-center mt-1 animate-pulse">
+                    ⚠️ {passwordError}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button 
                 onClick={confirmDelete}
@@ -503,7 +633,7 @@ const ProjectHistoryView: React.FC<Props> = ({ state, lang, onSelectUnit, onUpda
                 {(t as any).delete}
               </button>
               <button 
-                onClick={() => setConfirmModal({ show: false, type: 'single' })}
+                onClick={closeConfirmModal}
                 className="flex-1 bg-gray-100 text-gray-600 py-4 rounded-2xl font-black hover:bg-gray-200 transition-all active:scale-95"
               >
                 {(t as any).cancel}

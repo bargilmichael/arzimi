@@ -467,7 +467,12 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                             </div>
                             <div>
                               <span className="font-black text-blue-900 text-xl block leading-tight">{task.workerName}</span>
-                              <span className={`text-[10px] ${badgeBgClass} text-white px-2 py-0.5 rounded-md font-black uppercase mt-1 inline-block shadow-sm`}>{task.contractor}</span>
+                              <div className="flex flex-wrap items-center gap-2 mt-1">
+                                <span className={`text-[10px] ${badgeBgClass} text-white px-2 py-0.5 rounded-md font-black uppercase inline-block shadow-sm`}>{task.contractor}</span>
+                                <span className="text-[10px] text-gray-400 font-bold bg-slate-100 px-2 py-0.5 rounded-md">
+                                  📅 {(t as any).taskOpeningDate || (lang === 'he' ? 'תאריך פתיחה' : 'Opening Date')}: {formatDate(new Date(task.timestamp).toISOString().split('T')[0])}
+                                </span>
+                              </div>
                             </div>
                           </div>
                           <div className={`text-[10px] font-black px-3 py-1 rounded-full border-2 shadow-sm ${STATUS_CONFIG[task.status].color}`}>{(t as any)[STATUS_CONFIG[task.status].labelKey]}</div>

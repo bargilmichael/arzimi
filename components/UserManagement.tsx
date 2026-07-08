@@ -50,6 +50,11 @@ const UserManagement: React.FC<Props> = ({ lang, projectId }) => {
   const [loginAttempts, setLoginAttempts] = useState<LoginAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // History Deletion Password State
+  const [deletionPassword, setDeletionPassword] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+
   // User Form State
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
@@ -124,12 +129,42 @@ const UserManagement: React.FC<Props> = ({ lang, projectId }) => {
       setLoginAttempts(attempts.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)).slice(0, 50));
     });
 
+    // Sync Deletion Password
+    const unsubPassword = onSnapshot(doc(db, 'settings', 'history_deletion'), (snapshot) => {
+      if (snapshot.exists()) {
+        setDeletionPassword(snapshot.data().password || '');
+      }
+    }, (error) => {
+      console.warn("History deletion password subscription error in UserManagement:", error);
+    });
+
     return () => {
       unsubUsers();
       unsubDisc();
       unsubAttempts();
+      unsubPassword();
     };
   }, []);
+
+  const handleSaveDeletionPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletionPassword.trim()) {
+      showToast(lang === 'he' ? 'נא להזין סיסמה לא ריקה' : 'Please enter a non-empty password', 'error');
+      return;
+    }
+    setIsSavingPassword(true);
+    try {
+      await setDoc(doc(db, 'settings', 'history_deletion'), {
+        password: deletionPassword.trim()
+      });
+      showToast(lang === 'he' ? 'סיסמת מחיקת היסטוריה עודכנה בהצלחה!' : 'History deletion password updated successfully!');
+    } catch (error) {
+      console.error("Error saving deletion password:", error);
+      showToast(lang === 'he' ? 'שגיאה בעדכון הסיסמה' : 'Error updating password', 'error');
+    } finally {
+      setIsSavingPassword(false);
+    }
+  };
 
   const handleAddDiscipline = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,6 +442,55 @@ const UserManagement: React.FC<Props> = ({ lang, projectId }) => {
       </div>
 
       <TenantImporter lang={lang} projectId={projectId} />
+
+      {/* הגדרת סיסמה למחיקת היסטוריה */}
+      <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <h2 className="text-xl font-black text-gray-800 mb-6 flex items-center gap-3">
+          <span className="bg-red-50 p-2 rounded-xl">🔑</span>
+          {lang === 'he' ? 'סיסמת אבטחה למחיקת היסטוריה' : 'Security Password for History Deletion'}
+        </h2>
+        
+        <form onSubmit={handleSaveDeletionPassword} className="space-y-4 max-w-md">
+          <p className="text-xs text-gray-500 font-bold leading-relaxed">
+            {lang === 'he' 
+              ? 'על מנת למנוע מחיקה מקרית או בלתי מורשית של היסטוריית הפרויקט, מנהל המערכת (Admin) נדרש להגדיר סיסמה ייעודית. מחיקת היסטוריה תתאפשר רק לאחר הזנת סיסמה זו.'
+              : 'To prevent accidental or unauthorized deletion of project history, the administrator is required to set a dedicated password. History deletion will only be possible after entering this password.'}
+          </p>
+          
+          <div className="space-y-2">
+            <label className="text-xs font-black text-gray-400 uppercase px-2 tracking-widest block">
+              {lang === 'he' ? 'סיסמת מחיקה' : 'Deletion Password'}
+            </label>
+            <div className="relative flex items-center">
+              <input 
+                type={showPassword ? "text" : "password"} 
+                placeholder={lang === 'he' ? 'הזן סיסמת מחיקה חדשה' : 'Enter new deletion password'}
+                value={deletionPassword}
+                onChange={e => setDeletionPassword(e.target.value)}
+                required
+                className="w-full p-4 pl-12 rounded-2xl border-2 border-slate-100 focus:border-red-500 outline-none font-bold transition-all bg-slate-50/30 text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute left-4 text-gray-400 hover:text-gray-600 focus:outline-none text-xs font-black"
+              >
+                {showPassword ? (lang === 'he' ? 'הסתר' : 'Hide') : (lang === 'he' ? 'הצג' : 'Show')}
+              </button>
+            </div>
+          </div>
+
+          <button 
+            type="submit"
+            disabled={isSavingPassword}
+            className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-black text-xs shadow-md transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {isSavingPassword 
+              ? (lang === 'he' ? 'שומר סיסמה...' : 'Saving password...') 
+              : (lang === 'he' ? '💾 שמור סיסמת מחיקה' : '💾 Save Deletion Password')}
+          </button>
+        </form>
+      </div>
 
       <div className="bg-white rounded-3xl shadow-xl p-8 border border-gray-100 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center gap-3">

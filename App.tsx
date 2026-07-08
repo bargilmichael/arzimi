@@ -51,6 +51,7 @@ const App: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
   const [showAllProcesses, setShowAllProcesses] = useState(false);
   const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes'>('units');
+  const [deletionPassword, setDeletionPassword] = useState<string>('');
   
   const [lang, setLang] = useState<Language>(() => {
     return (localStorage.getItem('app_lang') as Language) || 'he';
@@ -60,6 +61,23 @@ const App: React.FC = () => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
   const [firestoreConnected, setFirestoreConnected] = useState<boolean>(true);
   const [isReconnecting, setIsReconnecting] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!user) {
+      setDeletionPassword('');
+      return;
+    }
+    const unsub = onSnapshot(doc(db, 'settings', 'history_deletion'), (snapshot) => {
+      if (snapshot.exists()) {
+        setDeletionPassword(snapshot.data().password || '');
+      } else {
+        setDeletionPassword('');
+      }
+    }, (error) => {
+      console.warn("History deletion password subscription error:", error);
+    });
+    return () => unsub();
+  }, [user]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -517,7 +535,6 @@ const App: React.FC = () => {
     }
     setSelectedBuildingId(buildingId);
     setSelectedUnitId(unitId);
-    setViewMode('units');
   };
 
   const isAdmin = user?.email?.toLowerCase() === ADMIN_EMAIL;
@@ -674,6 +691,7 @@ const App: React.FC = () => {
             userRole={userRole} 
             userDiscipline={userDiscipline} 
             disciplines={disciplines}
+            deletionPassword={deletionPassword}
           />
         ) : viewMode === 'processes' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
