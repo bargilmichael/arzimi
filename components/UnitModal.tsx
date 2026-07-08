@@ -8,6 +8,7 @@ import ExpandableText from './ExpandableText';
 import { generateWorkConfirmationPDF } from '../services/pdfService';
 import { auth } from '../firebase';
 import { Phone } from 'lucide-react';
+import { generateSMSMessage, sendSMS } from '../services/smsService';
 
 interface Props {
   unit: Unit;
@@ -33,9 +34,10 @@ interface Props {
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
   disciplines: DisciplineDefinition[];
+  smsTemplate?: string;
 }
 
-const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, activeDiscipline, userRole, userDiscipline, disciplines }) => {
+const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, activeDiscipline, userRole, userDiscipline, disciplines, smsTemplate }) => {
   const [activeTab, setActiveTab] = useState<'report' | 'history'>('history');
   
   // Tenant State
@@ -105,6 +107,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
   const [status, setStatus] = useState<TaskStatus>(TaskStatus.IN_PROGRESS);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [reportEmail, setReportEmail] = useState('');
+  const [sendAutoSms, setSendAutoSms] = useState(true);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -228,6 +231,30 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
       };
 
       onSave(updates);
+
+      // Automatically send SMS reminder to tenant if requested
+      if (sendAutoSms && tenantPhone && !isPublicArea) {
+        const formattedDateStr = formatDate(reportDate);
+        const messageText = generateSMSMessage({
+          tenantName: tenantName || 'דייר',
+          date: formattedDateStr,
+          workerName: worker,
+          contractorRole: selectedContractorLabel,
+          buildingNumber: unit.buildingId.split('-')[3] || unit.buildingId.split('-')[1] || unit.buildingId,
+          unitNumber: unit.id.split('-').pop() || unit.id,
+          template: smsTemplate
+        });
+
+        sendSMS(tenantPhone, messageText).then(res => {
+          if (res.success) {
+            console.log("Automatic coordination SMS sent via TextBee:", res.data);
+          } else {
+            console.error("Automatic coordination SMS failed to send:", res.error);
+          }
+        }).catch(err => {
+          console.error("Error triggering auto SMS:", err);
+        });
+      }
     }
 
     setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.IN_PROGRESS); setReportEmail(''); 
@@ -766,6 +793,23 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                       <p className="text-xs font-bold text-red-500 px-1 animate-pulse">{translationError}</p>
                     )}
                   </div>
+
+                  {/* Automatic SMS Notification Checkbox */}
+                  {!isPublicArea && tenantPhone && !editingLogId && (
+                    <div className="md:col-span-2 flex items-center gap-3 bg-white border border-blue-100 p-4 rounded-2xl shadow-sm mb-2">
+                      <input 
+                        type="checkbox" 
+                        id="sendAutoSmsCheckbox" 
+                        checked={sendAutoSms} 
+                        onChange={e => setSendAutoSms(e.target.checked)}
+                        className="w-5 h-5 accent-blue-600 rounded cursor-pointer"
+                      />
+                      <label htmlFor="sendAutoSmsCheckbox" className="text-sm font-black text-blue-900 cursor-pointer select-none">
+                        📱 {lang === 'he' ? 'שליחת תזכורת SMS אוטומטית לדייר עם שמירת התיאום' : 'Send automatic SMS reminder to tenant upon saving'}
+                      </label>
+                    </div>
+                  )}
+
                   <button type="submit" className="md:col-span-2 bg-blue-600 text-white font-black py-7 rounded-[2rem] hover:bg-blue-700 transition-all shadow-2xl active:scale-95 text-2xl tracking-[0.2em]">
                     {editingLogId ? (lang === 'he' ? 'שמור שינויים' : 'Save Changes') : t.updateButton}
                   </button>

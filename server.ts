@@ -89,6 +89,60 @@ ${text}`;
     }
   });
 
+  // SMS Deletion or general SMS Gateway (TextBee integration)
+  app.post("/api/send-sms", async (req, res) => {
+    try {
+      const { phone, message } = req.body;
+      if (!phone || !message) {
+        return res.status(400).json({ error: "Missing phone or message parameter." });
+      }
+
+      console.log(`Sending SMS to: ${phone}, message: ${message}`);
+
+      // Normalize phone number for Israeli cellular providers
+      let targetPhone = phone.trim();
+      targetPhone = targetPhone.replace(/[\s\-\(\)]/g, ''); // remove spaces and common separators
+
+      if (targetPhone.startsWith('05')) {
+        targetPhone = '+972' + targetPhone.substring(1);
+      } else if (targetPhone.startsWith('5')) {
+        targetPhone = '+972' + targetPhone;
+      } else if (targetPhone.startsWith('972') && !targetPhone.startsWith('+')) {
+        targetPhone = '+' + targetPhone;
+      } else if (!targetPhone.startsWith('+')) {
+        targetPhone = '+' + targetPhone;
+      }
+
+      const deviceId = process.env.TEXTBEE_DEVICE_ID || "6a4e3cf09317f40a16b64ea7";
+      const apiKey = process.env.TEXTBEE_API_KEY || "f8d4b8e1-d961-4181-8860-525a0dfc203f";
+
+      const url = `https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/send-sms`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey
+        },
+        body: JSON.stringify({
+          recipients: [targetPhone],
+          message: message
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`TextBee API error (${response.status}): ${errorText}`);
+      }
+
+      const responseData = await response.json();
+      console.log(`SMS successfully sent via TextBee to ${targetPhone}:`, responseData);
+      res.json({ success: true, data: responseData });
+    } catch (error: any) {
+      console.error("Failed to send SMS:", error);
+      res.status(500).json({ error: error.message || "Failed to send SMS via TextBee" });
+    }
+  });
+
   // Hot module replacement or dev/prod static rendering fallback
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

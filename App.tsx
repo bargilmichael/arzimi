@@ -12,6 +12,7 @@ import ContractorView from './components/ContractorView';
 import ScheduleView from './components/ScheduleView';
 import ProjectHistoryView from './components/ProjectHistoryView';
 import UserManagement from './components/UserManagement';
+import { SettingsView } from './components/SettingsView';
 import Login from './components/Login';
 import LanguageSelector from './components/LanguageSelector';
 import ProjectSelector from './components/ProjectSelector';
@@ -50,8 +51,9 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
   const [showAllProcesses, setShowAllProcesses] = useState(false);
-  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes'>('units');
+  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings'>('units');
   const [deletionPassword, setDeletionPassword] = useState<string>('');
+  const [smsTemplate, setSmsTemplate] = useState<string>("שלום {שם_דייר}, תזכורת ממחלקת בדק שמחר בתאריך {תאריך} מתואם להגיע אליך {בעל_מקצוע} לבניין {בניין}, דירה {דירה}. אנא ודא זמינות.");
   
   const [lang, setLang] = useState<Language>(() => {
     return (localStorage.getItem('app_lang') as Language) || 'he';
@@ -77,6 +79,18 @@ const App: React.FC = () => {
       console.warn("History deletion password subscription error:", error);
     });
     return () => unsub();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsubTemplate = onSnapshot(doc(db, 'settings', 'smsTemplate'), (snapshot) => {
+      if (snapshot.exists()) {
+        setSmsTemplate(snapshot.data().template || "שלום {שם_דייר}, תזכורת ממחלקת בדק שמחר בתאריך {תאריך} מתואם להגיע אליך {בעל_מקצוע} לבניין {בניין}, דירה {דירה}. אנא ודא זמינות.");
+      }
+    }, (error) => {
+      console.warn("SMS template subscription error:", error);
+    });
+    return () => unsubTemplate();
   }, [user]);
 
   useEffect(() => {
@@ -670,16 +684,21 @@ const App: React.FC = () => {
             {(statusFilter || viewMode === 'processes') && <span className="mr-2 w-2 h-2 rounded-full bg-blue-400 inline-block animate-pulse"></span>}
           </button>
           {userRole === 'admin' && (
-            <button onClick={() => setViewMode('users')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'users' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
-              {lang === 'he' ? 'משתמשים' : lang === 'ru' ? 'Пользователи' : 'المستخدمين'}
-            </button>
+            <>
+              <button onClick={() => setViewMode('users')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'users' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
+                {lang === 'he' ? 'משתמשים' : lang === 'ru' ? 'Пользователи' : 'المستخدمين'}
+              </button>
+              <button onClick={() => setViewMode('settings')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'settings' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
+                {lang === 'he' ? 'הגדרות' : lang === 'ru' ? 'Настройки' : 'Settings'}
+              </button>
+            </>
           )}
         </div>
 
         {viewMode === 'contractors' ? (
           <ContractorView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
         ) : viewMode === 'schedule' ? (
-          <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
+          <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} smsTemplate={smsTemplate} />
         ) : viewMode === 'history' ? (
           <ProjectHistoryView 
             state={state} 
@@ -749,6 +768,8 @@ const App: React.FC = () => {
           </div>
         ) : viewMode === 'users' && isAdmin ? (
           <UserManagement lang={lang} projectId={selectedProjectId || 'bnei-brak'} />
+        ) : viewMode === 'settings' && isAdmin ? (
+          <SettingsView lang={lang} />
         ) : (
           <>
             <section className="mt-4">
@@ -846,6 +867,7 @@ const App: React.FC = () => {
           userRole={userRole}
           userDiscipline={userDiscipline}
           disciplines={disciplines}
+          smsTemplate={smsTemplate}
         />
       )}
 

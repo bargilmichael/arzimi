@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ProjectState, Unit, TaskStatus, DisciplineDefinition } from '../types';
 import { Language, translations } from '../translations';
 import { CONTRACTORS, PUBLIC_AREAS } from '../constants';
+import { getSMSDetailsForTask, sendSMS } from '../services/smsService';
 
 interface Props {
   state: ProjectState;
@@ -10,17 +11,27 @@ interface Props {
   userRole: 'admin' | 'contractor' | 'viewer';
   userDiscipline: string;
   disciplines: DisciplineDefinition[];
+  smsTemplate?: string;
 }
 
 const ITEMS_PER_PAGE = 4;
 
-const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline, disciplines }) => {
+const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, userDiscipline, disciplines, smsTemplate }) => {
   const t = translations[lang] as any;
   const [currentPage, setCurrentPage] = useState(0);
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'tomorrow' | 'range'>('all');
   const [contractorFilter, setContractorFilter] = useState<string>('all');
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
+
+  // SMS status state variables
+  const [sendingSmsId, setSendingSmsId] = useState<string | null>(null);
+  const [smsSuccessId, setSmsSuccessId] = useState<Record<string, boolean>>({});
+  const [smsErrorId, setSmsErrorId] = useState<Record<string, string>>({});
+
+  // Bulk send state
+  const [sendingBulk, setSendingBulk] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ total: number; sent: number; failed: number } | null>(null);
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '';
@@ -101,6 +112,87 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
     return true;
   });
 
+  // Calculate tomorrow's date format and filter items for Tomorrow bulk action
+  const tomorrowDateObj = new Date();
+  tomorrowDateObj.setDate(tomorrowDateObj.getDate() + 1);
+  const tomorrowStr = tomorrowDateObj.toISOString().split('T')[0];
+
+  const tomorrowItems = filteredItems.filter(item => {
+    return item.date === tomorrowStr && item.unit.tenantInfo?.phone;
+  });
+
+  const handleSendAllTomorrow = async () => {
+    if (tomorrowItems.length === 0) return;
+    const confirmMessage = lang === 'he' 
+      ? `האם אתה בטוח שברצונך לשלוח תזכורת SMS אוטומטית ל-${tomorrowItems.length} דיירים שמתואמת להם משימה למחר?` 
+      : `Are you sure you want to send automatic SMS reminders to ${tomorrowItems.length} tenants with coordination scheduled for tomorrow?`;
+
+    if (!confirm(confirmMessage)) return;
+
+    setSendingBulk(true);
+    setBulkResult(null);
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const item of tomorrowItems) {
+      const details = getSMSDetailsForTask(item.unit, item.item, state.buildings, smsTemplate);
+      if (details.tenantPhone) {
+        const res = await sendSMS(details.tenantPhone, details.message);
+        if (res.success) {
+          sentCount++;
+          setSmsSuccessId(prev => ({ ...prev, [item.item.id]: true }));
+        } else {
+          failedCount++;
+          setSmsErrorId(prev => ({ ...prev, [item.item.id]: res.error || 'Failed' }));
+        }
+      } else {
+        failedCount++;
+      }
+    }
+
+    setSendingBulk(false);
+    setBulkResult({
+      total: tomorrowItems.length,
+      sent: sentCount,
+      failed: failedCount
+    });
+
+    setTimeout(() => {
+      setBulkResult(null);
+    }, 6000);
+  };
+
+  const handleSendIndividualSMS = async (e: React.MouseEvent, unit: Unit, log: any) => {
+    e.stopPropagation(); // Avoid triggering open card onClick on parent card button
+    
+    const details = getSMSDetailsForTask(unit, log, state.buildings, smsTemplate);
+    if (!details.tenantPhone) {
+      alert(lang === 'he' ? 'שגיאה: לא מוגדר מספר טלפון לדייר בדירה זו.' : 'Error: No phone number specified for this tenant.');
+      return;
+    }
+
+    setSendingSmsId(log.id);
+    setSmsSuccessId(prev => ({ ...prev, [log.id]: false }));
+    setSmsErrorId(prev => {
+      const copy = { ...prev };
+      delete copy[log.id];
+      return copy;
+    });
+
+    const res = await sendSMS(details.tenantPhone, details.message);
+    setSendingSmsId(null);
+
+    if (res.success) {
+      setSmsSuccessId(prev => ({ ...prev, [log.id]: true }));
+      setTimeout(() => {
+        setSmsSuccessId(prev => ({ ...prev, [log.id]: false }));
+      }, 4000);
+    } else {
+      setSmsErrorId(prev => ({ ...prev, [log.id]: res.error || 'Failed' }));
+    }
+  };
+
   // Sort by date and time (descending for history)
   filteredItems.sort((a, b) => 
     new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime()
@@ -158,6 +250,45 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
           </button>
         </div>
       </div>
+
+      {/* Bulk Tomorrow SMS Invitation Banner */}
+      {tomorrowItems.length > 0 && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-6 rounded-[2.5rem] shadow-xl flex flex-col md:flex-row justify-between items-center gap-4 animate-in fade-in duration-300">
+          <div className="flex items-center gap-4 text-right">
+            <span className="text-3xl bg-white/20 p-3 rounded-2xl">📱</span>
+            <div>
+              <h3 className="text-lg font-black">{lang === 'he' ? 'שליחת תזכורות SMS מרוכזת' : 'Batch SMS Reminders'}</h3>
+              <p className="text-xs text-blue-100 font-bold mt-1">
+                {lang === 'he' 
+                  ? `נמצאו ${tomorrowItems.length} תיאומים פעילים למחר עם מספרי טלפון תקינים. באפשרותך לשלוח תזכורת אוטומטית לכולם.` 
+                  : `Found ${tomorrowItems.length} active coordination tasks scheduled for tomorrow with phone numbers.`}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleSendAllTomorrow}
+            disabled={sendingBulk}
+            className="bg-white text-blue-900 hover:bg-blue-50 px-6 py-3.5 rounded-2xl font-black text-xs shadow-lg active:scale-95 transition-all disabled:opacity-50 min-w-[180px]"
+          >
+            {sendingBulk ? (
+              <span className="flex items-center justify-center gap-1.5">
+                <span className="animate-spin">⏳</span>
+                {lang === 'he' ? 'שולח...' : 'Sending...'}
+              </span>
+            ) : (
+              <span>{lang === 'he' ? 'שליחת תזכורות לכולם 🚀' : 'Send Reminders to All 🚀'}</span>
+            )}
+          </button>
+        </div>
+      )}
+
+      {bulkResult && (
+        <div className="bg-emerald-50 border-2 border-emerald-200 text-emerald-950 p-4 rounded-3xl text-xs font-black text-center animate-in fade-in">
+          {lang === 'he' 
+            ? `סיום שליחה מרוכזת: ${bulkResult.sent} נשלחו בהצלחה, ${bulkResult.failed} נכשלו (מתוך ${bulkResult.total} סה"כ).` 
+            : `Batch send completed: ${bulkResult.sent} sent, ${bulkResult.failed} failed of ${bulkResult.total}.`}
+        </div>
+      )}
 
       {/* Advanced Filter Bar */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-white/60 backdrop-blur-sm p-6 rounded-[2.5rem] border border-white shadow-sm ring-1 ring-gray-100">
@@ -296,10 +427,10 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
             const isManager = contractor.includes('מנהל') || contractor.includes('Manager');
 
             return (
-              <button
+              <div
                 key={`${type}-${item.id}`}
                 onClick={() => onSelectUnit(unit.buildingId, isPublic ? unitIdentifier : Number(unitIdentifier))}
-                className={`text-right group p-4 rounded-2xl border-2 transition-all hover:shadow-lg ${
+                className={`text-right group p-4 rounded-2xl border-2 transition-all hover:shadow-lg cursor-pointer ${
                   isToday ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-100'
                 } ${type === 'task' ? 'border-indigo-100' : ''}`}
               >
@@ -344,13 +475,68 @@ const ScheduleView: React.FC<Props> = ({ state, lang, onSelectUnit, userRole, us
                     {item.notes || item.description}
                   </div>
                 )}
+
+                {/* SMS Coordination Section */}
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <div className="text-right">
+                    <span className="text-[9px] text-gray-400 block font-bold uppercase tracking-wider">{lang === 'he' ? 'טלפון דייר' : 'Tenant Phone'}</span>
+                    <span className="text-xs font-black text-gray-700">
+                      {unit.tenantInfo?.phone ? (
+                        <span className="flex items-center gap-1">
+                          📱 {unit.tenantInfo.phone}
+                        </span>
+                      ) : (
+                        <span className="text-amber-500 flex items-center gap-1 font-bold">
+                          ⚠️ {lang === 'he' ? 'אין טלפון' : 'No phone'}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  {unit.tenantInfo?.phone && (
+                    <button
+                      onClick={(e) => handleSendIndividualSMS(e, unit, item)}
+                      disabled={sendingSmsId === item.id}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all border shadow-sm flex items-center gap-1.5 active:scale-95 ${
+                        smsSuccessId[item.id]
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : smsErrorId[item.id]
+                          ? 'bg-red-50 text-red-600 border-red-200'
+                          : 'bg-slate-50 text-blue-700 border-slate-200 hover:bg-blue-50 hover:text-blue-900 hover:border-blue-100'
+                      }`}
+                      title={smsErrorId[item.id] ? `Error: ${smsErrorId[item.id]}` : 'Send SMS reminder'}
+                    >
+                      {sendingSmsId === item.id ? (
+                        <>
+                          <span className="animate-spin text-[10px]">⏳</span>
+                          <span>{lang === 'he' ? 'שולח...' : 'Sending...'}</span>
+                        </>
+                      ) : smsSuccessId[item.id] ? (
+                        <>
+                          <span>✓</span>
+                          <span>{lang === 'he' ? 'נשלח!' : 'Sent!'}</span>
+                        </>
+                      ) : smsErrorId[item.id] ? (
+                        <>
+                          <span>⚠️</span>
+                          <span>{lang === 'he' ? 'נכשל' : 'Failed'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>✉️</span>
+                          <span>{lang === 'he' ? 'תזכורת' : 'Reminder'}</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 
                 <div className="mt-3 flex justify-end">
                    <span className="text-[10px] text-blue-500 font-bold group-hover:underline">
                      {lang === 'he' ? 'צפייה בכרטיס הדירה ←' : lang === 'ru' ? 'Посмотреть карту ←' : 'عرض ملف الشقة ←'}
                    </span>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
