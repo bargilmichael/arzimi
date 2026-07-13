@@ -89,7 +89,11 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
           const downloadUrl = await getDownloadURL(storageRef);
 
           // Save map URL in Firestore via Backend API
-          await axios.post(`/api/projects/save-map`, { projectId, mapUrl: downloadUrl });
+          await axios.post(`/api/projects/save-map`, { projectId, mapUrl: downloadUrl }, {
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
 
           showToast(lang === 'he' ? 'תוכנית האתר עודכנה בהצלחה!' : 'Site plan updated successfully!', 'success');
         } catch (uploadErr: any) {
@@ -148,7 +152,11 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
     setUploading(true);
     try {
       // Clear URL in Firestore via Backend API
-      await axios.post(`/api/projects/save-map`, { projectId, mapUrl: null });
+      await axios.post(`/api/projects/save-map`, { projectId, mapUrl: null }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       setMapUrl(null);
       showToast(lang === 'he' ? 'תוכנית האתר נמחקה בהצלחה' : 'Site plan deleted successfully', 'success');
     } catch (err: any) {

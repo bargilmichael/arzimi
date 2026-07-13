@@ -1,19 +1,32 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { initializeFirestore, doc, getDoc } from "firebase/firestore";
+import { getApps, initializeApp, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBMBrPn0ypVgYNUYbmK0X1kmkAdrKfod-A",
-  authDomain: "gen-lang-client-0145327151.firebaseapp.com",
-  projectId: "gen-lang-client-0145327151",
-  storageBucket: "gen-lang-client-0145327151.firebasestorage.app",
-  messagingSenderId: "831027802568",
-  appId: "1:831027802568:web:c41326806cdee18a6550fd"
-};
+const projectId = process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0145327151";
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY 
+  ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n') 
+  : undefined;
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const db = initializeFirestore(app, {
-  ignoreUndefinedProperties: true
-}, "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60");
+let app;
+if (getApps().length === 0) {
+  if (clientEmail && privateKey) {
+    app = initializeApp({
+      credential: cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      })
+    });
+  } else {
+    app = initializeApp({
+      projectId,
+    });
+  }
+} else {
+  app = getApps()[0];
+}
+
+const db = getFirestore(app, "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60");
 
 export default async function handler(req: any, res: any) {
   // CORS Headers
@@ -29,25 +42,25 @@ export default async function handler(req: any, res: any) {
     return res.status(200).end();
   }
 
-  const projectId = req.method === 'GET' ? req.query.projectId : req.body?.projectId;
+  const projectIdParam = req.method === 'GET' ? req.query.projectId : req.body?.projectId;
   
-  if (!projectId) {
+  if (!projectIdParam) {
     return res.status(400).json({ error: "Missing projectId parameter." });
   }
 
   try {
-    console.log(`[Vercel Serverless] Fetching map for project: ${projectId}`);
-    const projectRef = doc(db, 'projects', projectId);
-    const projectSnap = await getDoc(projectRef);
+    console.log(`[Vercel Serverless] Fetching map via modular admin SDK for project: ${projectIdParam}`);
+    const projectRef = db.collection('projects').doc(projectIdParam);
+    const projectSnap = await projectRef.get();
     
-    if (projectSnap.exists()) {
+    if (projectSnap.exists) {
       const data = projectSnap.data();
       return res.status(200).json({ mapUrl: data?.mapUrl || null });
     } else {
       return res.status(200).json({ mapUrl: null });
     }
   } catch (error: any) {
-    console.error("[Vercel Serverless] Failed to fetch project map:", error);
+    console.error("[Vercel Serverless] Failed to fetch project map via modular admin SDK:", error);
     return res.status(500).json({ 
       error: error.message || "Failed to fetch project map from Firestore" 
     });
