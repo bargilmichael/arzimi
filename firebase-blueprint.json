@@ -39,7 +39,9 @@
         "id": { "type": "string" },
         "name": { "type": "string" },
         "location": { "type": "string" },
-        "imageUrl": { "type": "string" }
+        "imageUrl": { "type": "string" },
+        "mapUrl": { "type": "string" },
+        "mapUploadedAt": { "type": "number" }
       },
       "required": ["id", "name"]
     },

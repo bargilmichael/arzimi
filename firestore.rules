@@ -129,6 +129,11 @@ service cloud.firestore {
              data.createdAt is number;
     }
 
+    function isValidProject(data) {
+      return data.id is string &&
+             (data.mapUrl == null || (data.mapUrl is string && data.mapUrl.size() <= 2048));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -149,6 +154,11 @@ service cloud.firestore {
     match /buildings/{buildingId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidProject(request.resource.data);
     }
 
     match /disciplines/{disciplineId} {

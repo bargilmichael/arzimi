@@ -13,6 +13,7 @@ import ScheduleView from './components/ScheduleView';
 import ProjectHistoryView from './components/ProjectHistoryView';
 import UserManagement from './components/UserManagement';
 import { SettingsView } from './components/SettingsView';
+import { MapView } from './components/MapView';
 import Login from './components/Login';
 import LanguageSelector from './components/LanguageSelector';
 import ProjectSelector from './components/ProjectSelector';
@@ -51,7 +52,7 @@ const App: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
   const [showAllProcesses, setShowAllProcesses] = useState(false);
-  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings'>('units');
+  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings' | 'map'>('units');
   const [deletionPassword, setDeletionPassword] = useState<string>('');
   const [smsTemplate, setSmsTemplate] = useState<string>("שלום {שם_דייר}, תזכורת ממחלקת בדק שמחר בתאריך {תאריך} מתואם להגיע אליך {בעל_מקצוע} לבניין {בניין}, דירה {דירה}. אנא ודא זמינות.");
   
@@ -683,6 +684,9 @@ const App: React.FC = () => {
             {(t as any).viewProcesses}
             {(statusFilter || viewMode === 'processes') && <span className="mr-2 w-2 h-2 rounded-full bg-blue-400 inline-block animate-pulse"></span>}
           </button>
+          <button onClick={() => setViewMode('map')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'map' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
+            {(t as any).viewMap || 'מפה'}
+          </button>
           {userRole === 'admin' && (
             <>
               <button onClick={() => setViewMode('users')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'users' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -695,7 +699,9 @@ const App: React.FC = () => {
           )}
         </div>
 
-        {viewMode === 'contractors' ? (
+        {viewMode === 'map' ? (
+          <MapView projectId={selectedProjectId || 'bnei-brak'} lang={lang} userRole={userRole} />
+        ) : viewMode === 'contractors' ? (
           <ContractorView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
         ) : viewMode === 'schedule' ? (
           <ScheduleView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} smsTemplate={smsTemplate} />
