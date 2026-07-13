@@ -3,22 +3,13 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import axios from "axios";
-import { initializeApp } from "firebase/app";
-import { initializeFirestore, doc, getDoc, setDoc } from "firebase/firestore";
+import { Firestore } from "@google-cloud/firestore";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyBMBrPn0ypVgYNUYbmK0X1kmkAdrKfod-A",
-  authDomain: "gen-lang-client-0145327151.firebaseapp.com",
+const db = new Firestore({
   projectId: "gen-lang-client-0145327151",
-  storageBucket: "gen-lang-client-0145327151.firebasestorage.app",
-  messagingSenderId: "831027802568",
-  appId: "1:831027802568:web:c41326806cdee18a6550fd"
-};
-
-const firebaseApp = initializeApp(firebaseConfig);
-const db = initializeFirestore(firebaseApp, {
+  databaseId: "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60",
   ignoreUndefinedProperties: true
-}, "ai-studio-0db8495b-a177-4a01-9076-555c25ef4f60");
+});
 
 async function startServer() {
   const app = express();
@@ -161,14 +152,57 @@ ${text}`;
     }
   });
 
+  // Save project map (serverless path)
+  app.post("/api/projects/save-map", async (req, res) => {
+    try {
+      const { projectId, mapUrl } = req.body;
+      if (!projectId) {
+        return res.status(400).json({ error: "Missing projectId" });
+      }
+      
+      const projectRef = db.collection('projects').doc(projectId);
+      await projectRef.set({
+        id: projectId,
+        mapUrl: mapUrl || null,
+        mapUploadedAt: mapUrl ? Date.now() : null
+      }, { merge: true });
+      
+      console.log(`[Express Dev] Project map updated for project ${projectId}: ${mapUrl ? "Uploaded" : "Deleted"}`);
+      res.json({ success: true, mapUrl: mapUrl || null });
+    } catch (error: any) {
+      console.error("Failed to save project map:", error);
+      res.status(500).json({ error: error.message || "Failed to save project map" });
+    }
+  });
+
+  // Get project map (serverless path)
+  app.get("/api/projects/get-map", async (req, res) => {
+    try {
+      const projectId = req.query.projectId as string;
+      if (!projectId) {
+        return res.status(400).json({ error: "Missing projectId" });
+      }
+      const projectRef = db.collection('projects').doc(projectId);
+      const projectSnap = await projectRef.get();
+      if (projectSnap.exists) {
+        res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
+      } else {
+        res.json({ mapUrl: null });
+      }
+    } catch (error: any) {
+      console.error("Failed to fetch project map:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch project map" });
+    }
+  });
+
   // Save project map
   app.post("/api/projects/:projectId/map", async (req, res) => {
     try {
       const { projectId } = req.params;
       const { mapUrl } = req.body;
       
-      const projectRef = doc(db, 'projects', projectId);
-      await setDoc(projectRef, {
+      const projectRef = db.collection('projects').doc(projectId);
+      await projectRef.set({
         id: projectId,
         mapUrl: mapUrl || null,
         mapUploadedAt: mapUrl ? Date.now() : null
@@ -186,10 +220,10 @@ ${text}`;
   app.get("/api/projects/:projectId/map", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const projectRef = doc(db, 'projects', projectId);
-      const projectSnap = await getDoc(projectRef);
-      if (projectSnap.exists()) {
-        res.json({ mapUrl: projectSnap.data().mapUrl || null });
+      const projectRef = db.collection('projects').doc(projectId);
+      const projectSnap = await projectRef.get();
+      if (projectSnap.exists) {
+        res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
       } else {
         res.json({ mapUrl: null });
       }

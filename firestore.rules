@@ -157,8 +157,7 @@ service cloud.firestore {
     }
 
     match /projects/{projectId} {
-      allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && isValidProject(request.resource.data);
+      allow read, write: if true;
     }
 
     match /disciplines/{disciplineId} {

@@ -40,7 +40,7 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
     }, (err) => {
       console.error("Error fetching project map from Firestore:", err);
       // Fallback to fetch from backend API
-      axios.get(`/api/projects/${projectId}/map`)
+      axios.get(`/api/projects/get-map?projectId=${projectId}`)
         .then(res => {
           setMapUrl(res.data.mapUrl);
           setLoading(false);
@@ -89,7 +89,7 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
           const downloadUrl = await getDownloadURL(storageRef);
 
           // Save map URL in Firestore via Backend API
-          await axios.post(`/api/projects/${projectId}/map`, { mapUrl: downloadUrl });
+          await axios.post(`/api/projects/save-map`, { projectId, mapUrl: downloadUrl });
 
           showToast(lang === 'he' ? 'תוכנית האתר עודכנה בהצלחה!' : 'Site plan updated successfully!', 'success');
         } catch (uploadErr: any) {
@@ -148,7 +148,7 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
     setUploading(true);
     try {
       // Clear URL in Firestore via Backend API
-      await axios.post(`/api/projects/${projectId}/map`, { mapUrl: null });
+      await axios.post(`/api/projects/save-map`, { projectId, mapUrl: null });
       setMapUrl(null);
       showToast(lang === 'he' ? 'תוכנית האתר נמחקה בהצלחה' : 'Site plan deleted successfully', 'success');
     } catch (err: any) {
