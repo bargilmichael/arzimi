@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from '../firebase';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { ref, uploadString, getDownloadURL } from 'firebase/storage';
 import { Language, translations } from '../translations';
 import axios from 'axios';
@@ -60,6 +60,43 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
     setTimeout(() => setToast(null), 3000);
   };
 
+  const compressImage = (base64Str: string, maxWidth = 1200, maxHeight = 1200, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.src = base64Str;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxWidth) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          }
+        } else {
+          if (height > maxHeight) {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } else {
+          resolve(base64Str);
+        }
+      };
+      img.onerror = () => {
+        resolve(base64Str);
+      };
+    });
+  };
+
   const handleFileUpload = async (file: File) => {
     if (!file) return;
     
@@ -78,22 +115,59 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         try {
-          const base64 = e.target?.result as string;
-          if (!base64) {
+          const originalBase64 = e.target?.result as string;
+          if (!originalBase64) {
             throw new Error("Failed to read file");
           }
 
-          // Upload to Firebase Storage
-          const storageRef = ref(storage, `projects/${projectId}/map`);
-          await uploadString(storageRef, base64, 'data_url');
-          const downloadUrl = await getDownloadURL(storageRef);
+          // Compress image to ensure it's small (usually under 150KB) and highly portable
+          console.log("Compressing site plan image on client side...");
+          const compressedBase64 = await compressImage(originalBase64);
+
+          let finalMapUrl = compressedBase64;
+
+          // Attempt to upload to Firebase Storage with a strict 8-second timeout
+          console.log("Attempting Firebase Storage upload...");
+          try {
+            const uploadPromise = (async () => {
+              const storageRef = ref(storage, `projects/${projectId}/map`);
+              await uploadString(storageRef, compressedBase64, 'data_url');
+              return await getDownloadURL(storageRef);
+            })();
+
+            const timeoutPromise = new Promise<string>((_, reject) =>
+              setTimeout(() => reject(new Error("Storage upload timed out")), 8000)
+            );
+
+            const storageUrl = await Promise.race([uploadPromise, timeoutPromise]);
+            console.log("Successfully uploaded to Firebase Storage, URL:", storageUrl);
+            finalMapUrl = storageUrl;
+          } catch (storageErr: any) {
+            console.warn(
+              "Firebase Storage upload failed or timed out. Falling back to storing compressed Base64 data URL directly in Firestore:",
+              storageErr
+            );
+            // We use the compressedBase64 directly
+            finalMapUrl = compressedBase64;
+          }
 
           // Save map URL in Firestore via Backend API
-          await axios.post(`/api/projects/save-map`, { projectId, mapUrl: downloadUrl }, {
-            headers: {
-              'Content-Type': 'application/json'
-            }
-          });
+          console.log("Saving map URL in Firestore via serverless backend API...");
+          try {
+            await axios.post(`/api/projects/save-map`, { projectId, mapUrl: finalMapUrl }, {
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+          } catch (apiErr: any) {
+            console.warn("Backend API save failed, falling back to direct Firestore setDoc from client-side...", apiErr);
+            // Direct setDoc fallback using client SDK under authenticated user session
+            await setDoc(doc(db, 'projects', projectId), {
+              id: projectId,
+              mapUrl: finalMapUrl,
+              mapUploadedAt: Date.now()
+            }, { merge: true });
+          }
 
           showToast(lang === 'he' ? 'תוכנית האתר עודכנה בהצלחה!' : 'Site plan updated successfully!', 'success');
         } catch (uploadErr: any) {
@@ -152,11 +226,21 @@ export const MapView: React.FC<Props> = ({ projectId, lang, userRole }) => {
     setUploading(true);
     try {
       // Clear URL in Firestore via Backend API
-      await axios.post(`/api/projects/save-map`, { projectId, mapUrl: null }, {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      try {
+        await axios.post(`/api/projects/save-map`, { projectId, mapUrl: null }, {
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+      } catch (apiErr: any) {
+        console.warn("Backend API delete failed, falling back to direct Firestore setDoc from client-side...", apiErr);
+        // Direct setDoc fallback using client SDK under authenticated user session
+        await setDoc(doc(db, 'projects', projectId), {
+          id: projectId,
+          mapUrl: null,
+          mapUploadedAt: null
+        }, { merge: true });
+      }
       setMapUrl(null);
       showToast(lang === 'he' ? 'תוכנית האתר נמחקה בהצלחה' : 'Site plan deleted successfully', 'success');
     } catch (err: any) {

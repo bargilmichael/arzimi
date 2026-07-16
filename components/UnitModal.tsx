@@ -104,7 +104,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
   const [reportTime, setReportTime] = useState(new Date().toTimeString().split(' ')[0].substring(0, 5));
-  const [status, setStatus] = useState<TaskStatus>(TaskStatus.IN_PROGRESS);
+  const [status, setStatus] = useState<TaskStatus>(TaskStatus.NOT_STARTED);
   const [selectedImages, setSelectedImages] = useState<string[]>([]);
   const [reportEmail, setReportEmail] = useState('');
   const [sendAutoSms, setSendAutoSms] = useState(true);
@@ -144,7 +144,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
 
   const handleStartWork = () => {
     setActiveTab('report');
-    setStatus(TaskStatus.IN_PROGRESS);
+    setStatus(TaskStatus.NOT_STARTED);
   };
 
   const handleDownloadPDF = async () => {
@@ -257,7 +257,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
       }
     }
 
-    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.IN_PROGRESS); setReportEmail(''); 
+    setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED); setReportEmail(''); 
     setReportDate(new Date().toISOString().split('T')[0]);
     setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
     setActiveTab('history');
@@ -688,7 +688,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                     <button 
                       onClick={() => {
                         setEditingLogId(null);
-                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.IN_PROGRESS);
+                        setWorker(''); setDesc(''); setSelectedImages([]); setStatus(TaskStatus.NOT_STARTED);
                         setReportDate(new Date().toISOString().split('T')[0]);
                         setReportTime(new Date().toTimeString().split(' ')[0].substring(0, 5));
                       }}
@@ -721,7 +721,7 @@ const UnitModal: React.FC<Props> = ({ unit, state, onClose, onSave, lang, active
                         setReportDate(newDate);
                         const today = new Date().toISOString().split('T')[0];
                         if (newDate !== today) {
-                          setStatus(TaskStatus.IN_PROGRESS);
+                          setStatus(TaskStatus.NOT_STARTED);
                         }
                       }} 
                       className="w-full px-6 py-5 rounded-2xl border-2 border-gray-100 focus:border-blue-500 outline-none font-black shadow-sm text-lg" 

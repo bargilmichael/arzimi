@@ -55,5 +55,6 @@ export const CONTRACTORS = [
   { id: 'emperion', labelKey: 'contractor_emperion', icon: '⚙️' },
   { id: 'itumit', labelKey: 'contractor_itumit', icon: '💧' },
   { id: 'electrician', labelKey: 'contractor_electrician', icon: '⚡' },
-  { id: 'gas_contractor', labelKey: 'contractor_gas', icon: '⛽' }
+  { id: 'gas_contractor', labelKey: 'contractor_gas', icon: '⛽' },
+  { id: 'aluminum', labelKey: 'contractor_aluminum', icon: '🪟' }
 ];

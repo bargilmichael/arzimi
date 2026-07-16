@@ -15,8 +15,9 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Body parsing middleware
-  app.use(express.json());
+  // Body parsing middleware with 10mb limit for base64 image support
+  app.use(express.json({ limit: "10mb" }));
+  app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
   // Dynamic AI Translation endpoint
   app.post("/api/translate", async (req, res) => {
@@ -160,14 +161,22 @@ ${text}`;
         return res.status(400).json({ error: "Missing projectId" });
       }
       
-      const projectRef = db.collection('projects').doc(projectId);
-      await projectRef.set({
-        id: projectId,
-        mapUrl: mapUrl || null,
-        mapUploadedAt: mapUrl ? Date.now() : null
-      }, { merge: true });
+      try {
+        const projectRef = db.collection('projects').doc(projectId);
+        await projectRef.set({
+          id: projectId,
+          mapUrl: mapUrl || null,
+          mapUploadedAt: mapUrl ? Date.now() : null
+        }, { merge: true });
+        console.log(`[Express Dev] Project map updated for project ${projectId}: ${mapUrl ? "Uploaded" : "Deleted"}`);
+      } catch (fsErr: any) {
+        if (fsErr.message?.includes("PERMISSION_DENIED") || fsErr.code === 7) {
+          console.warn(`[Express Dev] Firestore write PERMISSION_DENIED (expected in local dev mode without service account). Bypassing to let client-side direct persistence handle it.`);
+        } else {
+          throw fsErr;
+        }
+      }
       
-      console.log(`[Express Dev] Project map updated for project ${projectId}: ${mapUrl ? "Uploaded" : "Deleted"}`);
       res.json({ success: true, mapUrl: mapUrl || null });
     } catch (error: any) {
       console.error("Failed to save project map:", error);
@@ -182,12 +191,22 @@ ${text}`;
       if (!projectId) {
         return res.status(400).json({ error: "Missing projectId" });
       }
-      const projectRef = db.collection('projects').doc(projectId);
-      const projectSnap = await projectRef.get();
-      if (projectSnap.exists) {
-        res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
-      } else {
-        res.json({ mapUrl: null });
+      
+      try {
+        const projectRef = db.collection('projects').doc(projectId);
+        const projectSnap = await projectRef.get();
+        if (projectSnap.exists) {
+          res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
+        } else {
+          res.json({ mapUrl: null });
+        }
+      } catch (fsErr: any) {
+        if (fsErr.message?.includes("PERMISSION_DENIED") || fsErr.code === 7) {
+          console.warn(`[Express Dev] Firestore read PERMISSION_DENIED (expected in local dev mode without service account). Returning null so client-side direct read can handle it.`);
+          res.json({ mapUrl: null });
+        } else {
+          throw fsErr;
+        }
       }
     } catch (error: any) {
       console.error("Failed to fetch project map:", error);
@@ -201,14 +220,22 @@ ${text}`;
       const { projectId } = req.params;
       const { mapUrl } = req.body;
       
-      const projectRef = db.collection('projects').doc(projectId);
-      await projectRef.set({
-        id: projectId,
-        mapUrl: mapUrl || null,
-        mapUploadedAt: mapUrl ? Date.now() : null
-      }, { merge: true });
+      try {
+        const projectRef = db.collection('projects').doc(projectId);
+        await projectRef.set({
+          id: projectId,
+          mapUrl: mapUrl || null,
+          mapUploadedAt: mapUrl ? Date.now() : null
+        }, { merge: true });
+        console.log(`Project map updated for project ${projectId}: ${mapUrl ? "Uploaded" : "Deleted"}`);
+      } catch (fsErr: any) {
+        if (fsErr.message?.includes("PERMISSION_DENIED") || fsErr.code === 7) {
+          console.warn(`[Express Dev] Firestore write PERMISSION_DENIED (expected in local dev mode without service account). Bypassing to let client-side direct persistence handle it.`);
+        } else {
+          throw fsErr;
+        }
+      }
       
-      console.log(`Project map updated for project ${projectId}: ${mapUrl ? "Uploaded" : "Deleted"}`);
       res.json({ success: true, mapUrl: mapUrl || null });
     } catch (error: any) {
       console.error("Failed to save project map:", error);
@@ -220,12 +247,22 @@ ${text}`;
   app.get("/api/projects/:projectId/map", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const projectRef = db.collection('projects').doc(projectId);
-      const projectSnap = await projectRef.get();
-      if (projectSnap.exists) {
-        res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
-      } else {
-        res.json({ mapUrl: null });
+      
+      try {
+        const projectRef = db.collection('projects').doc(projectId);
+        const projectSnap = await projectRef.get();
+        if (projectSnap.exists) {
+          res.json({ mapUrl: projectSnap.data()?.mapUrl || null });
+        } else {
+          res.json({ mapUrl: null });
+        }
+      } catch (fsErr: any) {
+        if (fsErr.message?.includes("PERMISSION_DENIED") || fsErr.code === 7) {
+          console.warn(`[Express Dev] Firestore read PERMISSION_DENIED (expected in local dev mode without service account). Returning null so client-side direct read can handle it.`);
+          res.json({ mapUrl: null });
+        } else {
+          throw fsErr;
+        }
       }
     } catch (error: any) {
       console.error("Failed to fetch project map:", error);

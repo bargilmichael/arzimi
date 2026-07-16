@@ -7,11 +7,12 @@ import UnitGrid from './components/UnitGrid';
 import UnitModal from './components/UnitModal';
 import PlotSelector from './components/PlotSelector';
 import StatusDashboard from './components/StatusDashboard';
+import { AnalyticalDashboard } from './components/AnalyticalDashboard';
 import FilteredUnitList from './components/FilteredUnitList';
 import ContractorView from './components/ContractorView';
 import ScheduleView from './components/ScheduleView';
 import ProjectHistoryView from './components/ProjectHistoryView';
-import UserManagement from './components/UserManagement';
+import UserManagement, { DEFAULT_DISCIPLINES } from './components/UserManagement';
 import { SettingsView } from './components/SettingsView';
 import { MapView } from './components/MapView';
 import Login from './components/Login';
@@ -50,8 +51,10 @@ const App: React.FC = () => {
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
   const [selectedUnitId, setSelectedUnitId] = useState<string | number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<TaskStatus | null>(null);
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | 'OVERDUE' | null>(null);
+  const [contractorFilter, setContractorFilter] = useState<string | null>(null);
   const [showAllProcesses, setShowAllProcesses] = useState(false);
+  const [processesViewTab, setProcessesViewTab] = useState<'classic' | 'analytics'>('analytics');
   const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings' | 'map'>('units');
   const [deletionPassword, setDeletionPassword] = useState<string>('');
   const [smsTemplate, setSmsTemplate] = useState<string>("שלום {שם_דייר}, תזכורת ממחלקת בדק שמחר בתאריך {תאריך} מתואם להגיע אליך {בעל_מקצוע} לבניין {בניין}, דירה {דירה}. אנא ודא זמינות.");
@@ -149,10 +152,21 @@ const App: React.FC = () => {
     console.log("Setting up Firestore listeners for user:", user.email, "Project:", selectedProjectId);
 
     // Sync Disciplines
-    const unsubDisc = onSnapshot(collection(db, 'disciplines'), (snapshot) => {
+    const unsubDisc = onSnapshot(collection(db, 'disciplines'), async (snapshot) => {
       const discData = snapshot.docs.map(doc => doc.data() as DisciplineDefinition);
       setDisciplines(discData);
       setFirestoreConnected(true);
+
+      // Automatically insert any missing default disciplines to Firestore
+      for (const d of DEFAULT_DISCIPLINES) {
+        if (!discData.some(existing => existing.id === d.id)) {
+          try {
+            await setDoc(doc(db, 'disciplines', d.id), d);
+          } catch (err) {
+            console.error(`Error inserting default discipline ${d.id}:`, err);
+          }
+        }
+      }
     }, (error) => {
       console.error("Firestore Disciplines onSnapshot error:", error);
       if (error.code === 'unavailable' || error.message?.includes('offline') || error.message?.includes('reach')) {
@@ -720,26 +734,58 @@ const App: React.FC = () => {
           />
         ) : viewMode === 'processes' ? (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="mt-4 flex justify-end px-4">
+            <div className="mt-4 flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 px-4">
+              {/* Sub-tabs switcher */}
+              <div className="flex bg-slate-200/50 p-1 rounded-xl border border-slate-300/30 gap-1 text-xs font-black self-start">
+                <button
+                  onClick={() => setProcessesViewTab('analytics')}
+                  className={`px-4 py-2 rounded-lg transition-all ${processesViewTab === 'analytics' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-500 hover:text-gray-800'}`}
+                >
+                  {lang === 'he' ? 'אנליטיקה/לוח בקרה' : lang === 'ru' ? 'Аналитика' : 'Analytics'}
+                </button>
+                <button
+                  onClick={() => setProcessesViewTab('classic')}
+                  className={`px-4 py-2 rounded-lg transition-all ${processesViewTab === 'classic' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-500 hover:text-gray-800'}`}
+                >
+                  {lang === 'he' ? 'כרטיסיות סטטוס' : lang === 'ru' ? 'Карточки' : 'Status Cards'}
+                </button>
+              </div>
+
               {selectedPlotId && (
                 <button 
                   onClick={() => setShowAllProcesses(!showAllProcesses)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all border shadow-sm ${showAllProcesses ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-blue-600 border-blue-100 hover:bg-blue-50'}`}
+                  className={`flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all border shadow-sm ${showAllProcesses ? 'bg-blue-600 text-white border-blue-700' : 'bg-white text-blue-600 border-blue-100 hover:bg-blue-50'}`}
                 >
                   {showAllProcesses ? '✅' : '⬜'} {lang === 'he' ? 'צפה בכל המגרשים' : lang === 'ru' ? 'Смотреть все участки' : 'View All Plots'}
                 </button>
               )}
             </div>
-            <section className="mt-2">
-              <StatusDashboard 
-                state={state} 
-                lang={lang} 
-                selectedPlotId={showAllProcesses ? null : selectedPlotId} 
-                discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
-                statusFilter={statusFilter}
-                onStatusClick={setStatusFilter}
-              />
-            </section>
+
+            {processesViewTab === 'analytics' ? (
+              <section className="mt-4 px-4">
+                <AnalyticalDashboard 
+                  state={state}
+                  lang={lang}
+                  selectedPlotId={showAllProcesses ? null : selectedPlotId}
+                  discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'}
+                  statusFilter={statusFilter}
+                  onStatusClick={setStatusFilter}
+                  contractorFilter={contractorFilter}
+                  onContractorClick={setContractorFilter}
+                />
+              </section>
+            ) : (
+              <section className="mt-2">
+                <StatusDashboard 
+                  state={state} 
+                  lang={lang} 
+                  selectedPlotId={showAllProcesses ? null : selectedPlotId} 
+                  discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'} 
+                  statusFilter={statusFilter}
+                  onStatusClick={setStatusFilter}
+                />
+              </section>
+            )}
 
             <FilteredUnitList 
               state={state}
@@ -747,9 +793,14 @@ const App: React.FC = () => {
               selectedPlotId={showAllProcesses ? null : selectedPlotId}
               discipline={(userRole === 'contractor' && userDiscipline !== 'all') ? (userDiscipline as Discipline) : 'general'}
               statusFilter={statusFilter as any}
+              contractorFilter={contractorFilter}
               onSelectUnit={(buildingId, unitId) => {
                 handleSelectFromOtherView(buildingId, unitId);
                 setViewMode('units');
+              }}
+              onClearFilter={() => {
+                setStatusFilter(null);
+                setContractorFilter(null);
               }}
             />
             

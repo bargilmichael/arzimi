@@ -1,20 +1,29 @@
-
 import React from 'react';
-import { ProjectState, TaskStatus, Discipline, Unit } from '../types';
-import { STATUS_CONFIG, PUBLIC_AREAS } from '../constants';
+import { ProjectState, TaskStatus, Discipline, Unit, TaskLog } from '../types';
+import { STATUS_CONFIG, PUBLIC_AREAS, CONTRACTORS } from '../constants';
 import { Language, translations } from '../translations';
-import { getUnit, getUnitStatus } from '../services/dataService';
 
 interface Props {
   state: ProjectState;
   lang: Language;
   selectedPlotId: string | null;
   discipline: Discipline;
-  statusFilter: TaskStatus | null;
+  statusFilter: TaskStatus | 'OVERDUE' | null;
+  contractorFilter: string | null;
   onSelectUnit: (buildingId: string, unitId: string | number) => void;
+  onClearFilter?: () => void;
 }
 
-const FilteredUnitList: React.FC<Props> = ({ state, lang, selectedPlotId, discipline, statusFilter, onSelectUnit }) => {
+const FilteredUnitList: React.FC<Props> = ({ 
+  state, 
+  lang, 
+  selectedPlotId, 
+  discipline, 
+  statusFilter, 
+  contractorFilter,
+  onSelectUnit,
+  onClearFilter
+}) => {
   const t = translations[lang];
 
   const getFilteredUnits = () => {
@@ -35,54 +44,83 @@ const FilteredUnitList: React.FC<Props> = ({ state, lang, selectedPlotId, discip
     function checkUnitMatch(unit: Unit) {
       if (!unit || !unit.history || unit.history.length === 0) return false;
 
-      // Identify the LATEST status for each contractor/discipline
-      const latestStatuses = new Map<string, TaskStatus>();
+      // Identify the LATEST status and log for each contractor/discipline
+      const latestLogs = new Map<string, TaskLog>();
       
       const logs = (discipline === 'general' || discipline === 'all') 
         ? unit.history 
         : unit.history.filter(h => h.discipline === discipline);
         
       logs.forEach(log => {
-        // Fallback to discipline if contractorId is missing or the same
         const key = log.contractorId || log.discipline || 'unknown';
-        if (!latestStatuses.has(key)) {
-          latestStatuses.set(key, log.status);
+        if (!latestLogs.has(key)) {
+          latestLogs.set(key, log);
         }
       });
 
-      // Current unique statuses for this unit
-      const unitStatuses = Array.from(latestStatuses.values());
-      
-      if (!statusFilter) {
-        // Default "In Processes" view: show anything not DONE
-        return unitStatuses.some(s => s !== TaskStatus.DONE);
+      if (contractorFilter) {
+        const hasMatchingContractorTask = Array.from(latestLogs.values()).some(log => {
+          const cId = log.contractorId || log.contractor || 'workers';
+          const isOpenDefect = log.status !== TaskStatus.NOT_STARTED && log.status !== TaskStatus.DONE;
+          return cId === contractorFilter && isOpenDefect;
+        });
+        if (!hasMatchingContractorTask) return false;
       }
-      
-      return unitStatuses.includes(statusFilter);
+
+      if (statusFilter) {
+        if (statusFilter === 'OVERDUE') {
+          const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+          return Array.from(latestLogs.values()).some(log => 
+            log.status !== TaskStatus.NOT_STARTED && 
+            log.status !== TaskStatus.DONE && 
+            log.timestamp < sevenDaysAgo
+          );
+        }
+        return Array.from(latestLogs.values()).some(log => log.status === statusFilter);
+      }
+
+      if (!contractorFilter && !statusFilter) {
+        return Array.from(latestLogs.values()).some(log => log.status !== TaskStatus.DONE);
+      }
+
+      return true;
     }
 
     return results;
   };
 
   const filteredUnits = getFilteredUnits();
-  const config = statusFilter ? STATUS_CONFIG[statusFilter] : null;
+  const config = statusFilter && statusFilter !== 'OVERDUE' ? STATUS_CONFIG[statusFilter as TaskStatus] : null;
 
   return (
     <div className="mt-8 bg-white rounded-[3rem] shadow-2xl p-8 border border-gray-100 overflow-hidden animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="flex items-center justify-between mb-8">
         <h2 className="text-3xl font-black text-slate-800 flex items-center gap-4">
-          <span className="text-4xl">{config?.icon || '⚙️'}</span>
-          <span>{filteredUnits.length} {config ? (t as any)[config.labelKey] : (t as any).viewProcesses}</span>
+          <span className="text-4xl">
+            {statusFilter === 'OVERDUE' ? '⚠️' : config?.icon || (contractorFilter ? '👷' : '⚙️')}
+          </span>
+          <span>
+            {filteredUnits.length} {
+              statusFilter === 'OVERDUE' 
+                ? (lang === 'he' ? 'באיחור' : lang === 'ru' ? 'Просроченные' : 'Overdue')
+                : config 
+                  ? (t as any)[config.labelKey] 
+                  : contractorFilter
+                    ? `${lang === 'he' ? 'ליקויים בטיפול:' : 'Defects for:'} ${
+                        (() => {
+                          const contractorObj = CONTRACTORS.find(c => c.id === contractorFilter);
+                          return contractorObj ? `${contractorObj.icon} ${(translations[lang] as any)[contractorObj.labelKey]}` : contractorFilter;
+                        })()
+                      }`
+                    : (t as any).viewProcesses
+            }
+          </span>
         </h2>
-        {statusFilter && (
+        {(statusFilter || contractorFilter) && (
           <button 
-            onClick={() => onSelectUnit && (onSelectUnit as any)(null, null)} // Hack to trigger status clear if we had a callback for it
+            onClick={onClearFilter}
             className="text-[10px] font-black text-blue-600 uppercase bg-blue-50 px-3 py-1 rounded-lg hover:bg-blue-100 transition-all"
             style={{ cursor: 'pointer' }}
-            onClickCapture={() => {
-              // App.tsx doesn't provide a direct way to clear status from here currently, 
-              // but we can assume the user would click the Processes tab again or we can add it later.
-            }}
           >
             ❌ {lang === 'he' ? 'נקה סינון' : 'Clear Filter'}
           </button>
@@ -103,12 +141,58 @@ const FilteredUnitList: React.FC<Props> = ({ state, lang, selectedPlotId, discip
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {filteredUnits.map((unit) => {
             const building = state.buildings.find(b => b.id === unit.buildingId);
-            const buildingName = lang === 'ru' ? building?.name.replace('בניין', 'Зד.') : lang === 'ar' ? building?.name.replace('בניין', 'م.') : building?.name;
+            const buildingName = lang === 'ru' ? building?.name.replace('בניין', 'Зд.') : lang === 'ar' ? building?.name.replace('בניין', 'م.') : building?.name;
             
             const unitIdParts = unit.id.split('-');
             const unitIdentifier = unitIdParts[unitIdParts.length - 1];
             const isPublicArea = isNaN(Number(unitIdentifier));
             const publicAreaConfig = isPublicArea ? PUBLIC_AREAS.find(a => a.id === unitIdentifier) : null;
+
+            if (statusFilter === 'OVERDUE') {
+              const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+              const latestLogs = new Map<string, TaskLog>();
+              const logs = (discipline === 'general' || discipline === 'all')
+                ? unit.history
+                : unit.history.filter(h => h.discipline === discipline);
+
+              logs.forEach(log => {
+                const key = log.contractorId || log.discipline || 'unknown';
+                if (!latestLogs.has(key)) {
+                  latestLogs.set(key, log);
+                }
+              });
+
+              let oldestOverdueLog: TaskLog | null = null;
+              latestLogs.forEach(log => {
+                if (log.status !== TaskStatus.NOT_STARTED && log.status !== TaskStatus.DONE && log.timestamp < sevenDaysAgo) {
+                  if (!oldestOverdueLog || log.timestamp < oldestOverdueLog.timestamp) {
+                    oldestOverdueLog = log;
+                  }
+                }
+              });
+
+              const dueDateVal = oldestOverdueLog ? oldestOverdueLog.timestamp + 7 * 24 * 60 * 60 * 1000 : Date.now();
+              const dueDateStr = new Date(dueDateVal).toLocaleDateString('he-IL');
+
+              return (
+                <button
+                  key={unit.id}
+                  onClick={() => onSelectUnit(unit.buildingId, isPublicArea ? unitIdentifier : unit.number)}
+                  className="flex items-center justify-between p-5 rounded-2xl border-2 transition-all hover:shadow-xl hover:-translate-y-1 active:scale-95 text-right bg-red-50 border-red-200 text-red-950 shadow-sm w-full group"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-red-500 tracking-widest leading-none mb-1">{buildingName}</span>
+                    <span className="text-xl font-black">{isPublicArea ? (t as any)[publicAreaConfig?.labelKey || ''] : `${t.apartment} ${unitIdentifier}`}</span>
+                  </div>
+                  <div className="flex flex-col items-end">
+                    <span className="text-[10px] font-black bg-red-100 text-red-700 px-2 py-0.5 rounded-md mb-2">{isPublicArea ? 'PL' : 'AP'}-{unit.number || '0'}</span>
+                    <span className="text-xs font-black text-red-600 animate-pulse">
+                      {lang === 'he' ? `פג תוקף: ${dueDateStr}` : lang === 'ru' ? `Просрочено: ${dueDateStr}` : `منتهي الصلاحية: ${dueDateStr}`}
+                    </span>
+                  </div>
+                </button>
+              );
+            }
 
             const isCoordTask = statusFilter === TaskStatus.COORDINATION_REQUIRED || 
                                 unit.history.some(h => h.status === TaskStatus.COORDINATION_REQUIRED);

@@ -131,7 +131,7 @@ service cloud.firestore {
 
     function isValidProject(data) {
       return data.id is string &&
-             (data.mapUrl == null || (data.mapUrl is string && data.mapUrl.size() <= 2048));
+             (data.mapUrl == null || (data.mapUrl is string && data.mapUrl.size() <= 2000000));
     }
 
     // ===============================================================

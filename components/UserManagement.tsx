@@ -32,7 +32,7 @@ interface Props {
   projectId: string;
 }
 
-const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
+export const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
   { id: 'general', labels: { he: 'מנהל עבודה / כללי', ru: 'Прораб / Общее', ar: 'مدير عمل / عام' }, isActive: true },
   { id: 'plumbing', labels: { he: 'אינסטלטור (אינסטלציה)', ru: 'Сантехник', ar: 'سباك (سباكة)' }, isActive: true },
   { id: 'rappelling', labels: { he: 'איש סנפלינג (סנפלינג)', ru: 'Верхолаз (Снапплинг)', ar: 'رجل تسلق (سنابلك)' }, isActive: true },
@@ -42,6 +42,7 @@ const DEFAULT_DISCIPLINES: DisciplineDefinition[] = [
   { id: 'workers', labels: { he: 'פועל (שלד וגמר)', ru: 'Рабочий', ar: 'عامل (بناء وتشطيب)' }, isActive: true },
   { id: 'electrician', labels: { he: 'חשמלאי (חשמל)', ru: 'Электрик', ar: 'كهربائي (كهرباء)' }, isActive: true },
   { id: 'gas_contractor', labels: { he: 'קבלן גז', ru: 'Подрядчик по газу', ar: 'مقاول غاز' }, isActive: true },
+  { id: 'aluminum', labels: { he: 'איש אלומיניום (חלונות ותריסים)', ru: 'Алюминиевые конструкции', ar: 'فני ألمنيوم (نوافذ وأباجورات)' }, isActive: true },
 ];
 
 const UserManagement: React.FC<Props> = ({ lang, projectId }) => {
