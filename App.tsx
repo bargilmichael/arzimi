@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ProjectState, TaskStatus, Unit, Discipline, Building, DisciplineDefinition } from './types';
+import { ProjectState, TaskStatus, Unit, Discipline, Building, DisciplineDefinition, PriceQuote } from './types';
 import { initializeData, getUnit, getUnitStatus, updateUnit, updateBuilding } from './services/dataService';
 import BuildingSelector from './components/BuildingSelector';
 import BuildingCommittee from './components/BuildingCommittee';
@@ -15,6 +15,7 @@ import ProjectHistoryView from './components/ProjectHistoryView';
 import UserManagement, { DEFAULT_DISCIPLINES } from './components/UserManagement';
 import { SettingsView } from './components/SettingsView';
 import { MapView } from './components/MapView';
+import { PriceQuotesView } from './components/PriceQuotesView';
 import Login from './components/Login';
 import LanguageSelector from './components/LanguageSelector';
 import ProjectSelector from './components/ProjectSelector';
@@ -55,7 +56,8 @@ const App: React.FC = () => {
   const [contractorFilter, setContractorFilter] = useState<string | null>(null);
   const [showAllProcesses, setShowAllProcesses] = useState(false);
   const [processesViewTab, setProcessesViewTab] = useState<'classic' | 'analytics'>('analytics');
-  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings' | 'map'>('units');
+  const [viewMode, setViewMode] = useState<'units' | 'public' | 'contractors' | 'schedule' | 'history' | 'users' | 'processes' | 'settings' | 'map' | 'price_quotes'>('units');
+  const [priceQuotes, setPriceQuotes] = useState<PriceQuote[]>([]);
   const [deletionPassword, setDeletionPassword] = useState<string>('');
   const [smsTemplate, setSmsTemplate] = useState<string>("שלום {שם_דייר}, תזכורת ממחלקת בדק שמחר בתאריך {תאריך} מתואם להגיע אליך {בעל_מקצוע} לבניין {בניין}, דירה {דירה}. אנא ודא זמינות.");
   
@@ -228,10 +230,22 @@ const App: React.FC = () => {
       }
     });
 
+    const unsubQuotes = onSnapshot(collection(db, 'price_quotes'), (snapshot) => {
+      const quotesList: PriceQuote[] = [];
+      snapshot.forEach(d => {
+        quotesList.push({ id: d.id, ...d.data() } as PriceQuote);
+      });
+      quotesList.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+      setPriceQuotes(quotesList);
+    }, (error) => {
+      console.error("Firestore PriceQuotes onSnapshot error:", error);
+    });
+
     return () => {
       unsubDisc();
       unsubUnits();
       unsubBuildings();
+      unsubQuotes();
     };
   }, [user, selectedProjectId]);
 
@@ -557,6 +571,36 @@ const App: React.FC = () => {
     return isSearchMatch && isPlotMatch;
   });
 
+  const handleSavePriceQuote = async (quoteData: Partial<PriceQuote>, quoteId?: string) => {
+    try {
+      if (quoteId) {
+        const quoteRef = doc(db, 'price_quotes', quoteId);
+        await setDoc(quoteRef, { ...quoteData, updatedAt: Date.now() }, { merge: true });
+      } else {
+        const quotesCol = collection(db, 'price_quotes');
+        const newDocRef = doc(quotesCol);
+        await setDoc(newDocRef, {
+          id: newDocRef.id,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          ...quoteData
+        });
+      }
+    } catch (err) {
+      console.error("Failed to save price quote to Firestore:", err);
+      throw err;
+    }
+  };
+
+  const handleDeletePriceQuote = async (quoteId: string) => {
+    try {
+      await deleteDoc(doc(db, 'price_quotes', quoteId));
+    } catch (err) {
+      console.error("Failed to delete price quote from Firestore:", err);
+      throw err;
+    }
+  };
+
   const handleSelectFromOtherView = (buildingId: string, unitId: string | number) => {
     const building = state.buildings.find(b => b.id === buildingId);
     if (building) {
@@ -698,6 +742,15 @@ const App: React.FC = () => {
             {(t as any).viewProcesses}
             {(statusFilter || viewMode === 'processes') && <span className="mr-2 w-2 h-2 rounded-full bg-blue-400 inline-block animate-pulse"></span>}
           </button>
+          <button 
+            onClick={() => setViewMode('price_quotes')} 
+            className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all relative ${viewMode === 'price_quotes' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            {(t as any).priceQuotesNav || 'הצעות מחיר'}
+            {priceQuotes.some(q => q.status === 'PENDING_SIGNATURE' || q.status === 'SIGNED_PENDING_DISPATCH') && (
+              <span className="mr-2 w-2 h-2 rounded-full bg-amber-500 inline-block animate-pulse"></span>
+            )}
+          </button>
           <button onClick={() => setViewMode('map')} className={`whitespace-nowrap flex-1 md:flex-none px-6 py-2.5 rounded-xl font-black transition-all ${viewMode === 'map' ? 'bg-white shadow-md text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>
             {(t as any).viewMap || 'מפה'}
           </button>
@@ -715,6 +768,16 @@ const App: React.FC = () => {
 
         {viewMode === 'map' ? (
           <MapView projectId={selectedProjectId || 'bnei-brak'} lang={lang} userRole={userRole} />
+        ) : viewMode === 'price_quotes' ? (
+          <PriceQuotesView
+            quotes={priceQuotes}
+            state={state}
+            selectedProjectId={selectedProjectId || 'bnei-brak'}
+            lang={lang}
+            userRole={userRole}
+            onSaveQuote={handleSavePriceQuote}
+            onDeleteQuote={handleDeletePriceQuote}
+          />
         ) : viewMode === 'contractors' ? (
           <ContractorView state={state} lang={lang} onSelectUnit={handleSelectFromOtherView} userRole={userRole} userDiscipline={userDiscipline} disciplines={disciplines} />
         ) : viewMode === 'schedule' ? (

@@ -176,6 +176,11 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+    match /price_quotes/{quoteId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
     match /units/{unitId} {
       allow read: if isAuthenticated();
       allow write: if isAdmin() || isContractor();

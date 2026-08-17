@@ -88,9 +88,31 @@
         "role": { "type": "string", "enum": ["admin", "contractor", "viewer"] }
       },
       "required": ["uid", "email", "role"]
+    },
+    "PriceQuote": {
+      "title": "PriceQuote",
+      "description": "A supplier price quote request and workflow record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "projectId": { "type": "string" },
+        "buildingId": { "type": "string" },
+        "supplier": { "type": "string" },
+        "status": { "type": "string", "enum": ["REQUEST_SENT", "PENDING_SIGNATURE", "SIGNED_PENDING_DISPATCH", "ORDERED_CLOSED"] },
+        "requestDate": { "type": "string" },
+        "requestedBy": { "type": "string" },
+        "itemDescription": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "projectId", "buildingId", "supplier", "status", "requestDate", "requestedBy", "itemDescription", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
+    "/price_quotes/{quoteId}": {
+      "schema": "PriceQuote",
+      "description": "Price quotes requests and approval pipeline"
+    },
     "/projects/{projectId}": {
       "schema": "Project",
       "description": "Collection of projects"
