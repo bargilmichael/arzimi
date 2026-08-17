@@ -1,0 +1,204 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: buildings
+    // Document ID: buildingId
+    // Fields:
+    //   - id: string (required)
+    //   - name: string (required)
+    //   - totalUnits: number (required)
+    //
+    // Collection: units
+    // Document ID: unitId
+    // Fields:
+    //   - id: string (required)
+    //   - buildingId: string (required)
+    //   - number: number (required)
+    //   - statuses: map (required)
+    //
+    // Collection: units/{unitId}/logs
+    // Document ID: logId
+    // Fields:
+    //   - id: string (required)
+    //   - timestamp: number (required)
+    //   - workerName: string (required)
+    //   - contractor: string (required)
+    //   - description: string (required)
+    //   - status: string (required)
+    //   - discipline: string (required)
+    //   - images: list (optional)
+    //
+    // Collection: units/{unitId}/appointments
+    // Document ID: appointmentId
+    // Fields:
+    //   - id: string (required)
+    //   - date: string (required)
+    //   - time: string (required)
+    //   - tenantName: string (required)
+    //   - contractor: string (required)
+    //   - notes: string (optional)
+    //   - isCompleted: bool (required)
+    //   - createdAt: number (required)
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - role: string (required) - ['admin', 'contractor', 'viewer']
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (request.auth.token.email == "bargil.michael@gmail.com" ||
+         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'));
+    }
+
+    function isContractor() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'contractor';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidString(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+             request.resource.data[field].size() >= minLen &&
+             request.resource.data[field].size() <= maxLen;
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return (data.uid == null || data.uid is string) &&
+             data.email is string && data.email.size() > 0 &&
+             data.role in ['admin', 'contractor', 'viewer'];
+    }
+
+    function isValidBuilding(data) {
+      return data.id is string && data.name is string && data.totalUnits is number;
+    }
+
+    function isValidUnit(data) {
+      return data.id is string && data.buildingId is string && data.number is number && data.statuses is map;
+    }
+
+    function isValidLog(data) {
+      return data.id is string && data.timestamp is number &&
+             data.workerName is string && data.workerName.size() > 0 && data.workerName.size() < 100 &&
+             data.contractor is string && data.contractor.size() > 0 &&
+             data.description is string && data.description.size() < 2000 &&
+             data.status in ['NOT_STARTED', 'IN_PROGRESS', 'DONE', 'NEEDS_FOLLOWUP', 'BLOCKED'] &&
+             data.discipline in ['plumbing', 'general'];
+    }
+
+    function isValidAppointment(data) {
+      return data.id is string && data.date is string && data.time is string &&
+             data.tenantName is string && data.tenantName.size() > 0 &&
+             data.contractor is string && data.isCompleted is bool &&
+             data.createdAt is number;
+    }
+
+    function isValidProject(data) {
+      return data.id is string &&
+             (data.mapUrl == null || (data.mapUrl is string && data.mapUrl.size() <= 2000000));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && (
+        (isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role != 'admin' || isAdmin())) ||
+        isAdmin()
+      );
+      allow update: if isAuthenticated() && (
+        (isOwner(userId) && isValidUser(request.resource.data) && (request.resource.data.role == resource.data.role || isAdmin())) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /buildings/{buildingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /projects/{projectId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && isValidProject(request.resource.data);
+    }
+
+    match /disciplines/{disciplineId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /login_attempts/{attemptId} {
+      allow read: if isAdmin();
+      allow write: if isAuthenticated();
+    }
+
+    match /price_quotes/{quoteId} {
+      allow read: if isAuthenticated();
+      allow create, update, delete: if isAuthenticated();
+    }
+
+    match /units/{unitId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isContractor();
+      
+      match /logs/{logId} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin() || isContractor();
+      }
+      
+      match /appointments/{appointmentId} {
+        allow read: if isAuthenticated();
+        allow write: if isAdmin() || isContractor();
+      }
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Copy of מחלקת בדק ארזי הנגב כולל בקרת גישה",
+  "description": "מערכת מקצועית לניהול משימות בדק ואינסטלציה, תמיכה ב-33 בניינים, ניהול מעקב הצעות מחיר מספקים בארבעה שלבים, מעקב היסטורי מלא, וסינון מתקדם לפי סטטוס ומגרשים.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
